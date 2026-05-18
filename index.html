@@ -315,22 +315,24 @@
                                     <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-blue-300 mr-1.5"></span> Sábado</div>
                                     <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-red-300 mr-1.5"></span> Domingo</div>
                                     <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-purple-300 mr-1.5"></span> Festivo</div>
-                                        {allowedTypes.length < 4 && (
-                                            <div className="mt-3 text-[10.5px] text-amber-700 bg-amber-50 p-2 rounded-lg flex items-start leading-tight border border-amber-100">
-                                                <IconAlert size={14} className="mr-1.5 shrink-0 mt-0.5" /> 
-                                                El tipo de jornada seleccionada aplicó filtros de días a este calendario.
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
-        };
+                                </div>
 
-        const Toast = ({ message, type, onClose }) => {
+                                {allowedTypes.length < 4 && (
+                                    <div className="mt-3 text-[10.5px] text-amber-700 bg-amber-50 p-2 rounded-lg flex items-start leading-tight border border-amber-100">
+                                        <IconAlert size={14} className="mr-1.5 shrink-0 mt-0.5" /> 
+                                        El tipo de jornada seleccionada aplicó filtros de días a este calendario.
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const Toast = ({ message, type, onClose }) => {
             useEffect(() => {
                 const timer = setTimeout(onClose, 4000);
                 return () => clearTimeout(timer);
