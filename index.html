@@ -47,6 +47,9 @@
         // --- CONFIGURACIONES ---
         const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzBY1-PKTTza_ePYq_Q4dVTM1rhyjiAS9_yqWBfa51s_67o4eLPhL3QqnfO_T7VjISr/exec";
         
+        // --- OBLIGATORIO: PEGA AQUÍ TU ID DE CLIENTE DE GOOGLE ---
+        const GOOGLE_CLIENT_ID = "984259317461-jdt2jq6fv654n8lkn6347f846e04s0hl.apps.googleusercontent.com";
+
         const ALLOWED_EMAILS = [
             "admin@clinica.com",
             "medico1@gmail.com",
@@ -501,6 +504,45 @@ const Toast = ({ message, type, onClose }) => {
             const [doctorsList, setDoctorsList] = useState([]);
             const [isLoadingDoctors, setIsLoadingDoctors] = useState(true);
             
+            // Función para decodificar el token de Google
+            const parseJwt = (token) => {
+                try {
+                    return JSON.parse(atob(token.split('.')[1]));
+                } catch (e) {
+                    return null;
+                }
+            };
+
+            // Inicializar el script oficial de Google Sign-In
+            useEffect(() => {
+                if (user) return; // Si ya está logueado, no renderiza el botón
+
+                const initGoogleSignIn = () => {
+                    if (window.google) {
+                        window.google.accounts.id.initialize({
+                            client_id: GOOGLE_CLIENT_ID,
+                            callback: handleGoogleResponse
+                        });
+                        window.google.accounts.id.renderButton(
+                            document.getElementById("googleSignInDiv"),
+                            { theme: "outline", size: "large", width: "100%", shape: "rectangular" }
+                        );
+                    }
+                };
+
+                const scriptId = 'google-gsi-client';
+                if (!document.getElementById(scriptId)) {
+                    const script = document.createElement('script');
+                    script.id = scriptId;
+                    script.src = 'https://accounts.google.com/gsi/client';
+                    script.async = true;
+                    script.onload = initGoogleSignIn;
+                    document.body.appendChild(script);
+                } else {
+                    initGoogleSignIn();
+                }
+            }, [user]);
+
             useEffect(() => {
                 const fetchDoctors = async () => {
                     setIsLoadingDoctors(true);
@@ -525,26 +567,32 @@ const Toast = ({ message, type, onClose }) => {
                 fetchDoctors();
             }, []);
 
-            const handleLogin = () => {
+            const handleGoogleResponse = (response) => {
                 setIsLoggingIn(true);
-                setTimeout(() => {
-                    const mockUser = {
-                        name: "Dr. Administrador",
-                        email: "santiagobp.md@gmail.com",
-                        photoUrl: ""
-                    };
-                    if (ALLOWED_EMAILS.includes(mockUser.email) || ALLOWED_EMAILS.length === 0) {
-                        setUser(mockUser);
+                try {
+                    const payload = parseJwt(response.credential);
+                    if (payload && (ALLOWED_EMAILS.includes(payload.email) || ALLOWED_EMAILS.length === 0)) {
+                        setUser({ 
+                            name: payload.name, 
+                            email: payload.email, 
+                            photoUrl: payload.picture 
+                        });
                     } else {
                         setToast({ message: "Correo no autorizado para acceder al sistema.", type: "error" });
                     }
+                } catch (error) {
+                    setToast({ message: "Error al autenticar con Google.", type: "error" });
+                } finally {
                     setIsLoggingIn(false);
-                }, 1000);
+                }
             };
 
             const handleLogout = () => { 
                 setUser(null); 
                 setShifts([{ id: '1', person: '', type: '', date: '', room: '' }]);
+                if (window.google) {
+                    window.google.accounts.id.disableAutoSelect();
+                }
             };
             const addShift = () => setShifts([...shifts, { id: Date.now().toString(), person: '', type: '', date: '', room: '' }]);
             const removeShift = (id) => setShifts(shifts.filter(s => s.id !== id));
@@ -601,10 +649,15 @@ const Toast = ({ message, type, onClose }) => {
                                 Solo personal autorizado puede acceder al sistema.
                             </div>
 
-                            <button onClick={handleLogin} disabled={isLoggingIn} className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-white bg-keralty-blue hover:bg-blue-900 transition-colors disabled:opacity-70">
-                                {isLoggingIn ? <IconRefresh className="animate-spin mr-2" /> : <IconGoogle />}
-                                Continuar con Google
-                            </button>
+                            <div className="flex justify-center min-h-[44px]">
+                                {isLoggingIn ? (
+                                    <button disabled className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-white bg-slate-400">
+                                        <IconRefresh className="animate-spin mr-2" /> Validando seguridad...
+                                    </button>
+                                ) : (
+                                    <div id="googleSignInDiv" className="w-full flex justify-center"></div>
+                                )}
+                            </div>
                         </div>
                         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                     </div>
