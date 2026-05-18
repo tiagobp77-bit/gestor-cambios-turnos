@@ -242,6 +242,7 @@
             const getAllowedDayTypes = (shiftType) => {
                 if (!shiftType) return ['habil', 'sabado', 'domingo', 'festivo'];
                 if (shiftType.includes("Disponibilidad U2")) return ['domingo', 'festivo'];
+                if (shiftType.includes("Disponibilidad AM") || shiftType.includes("Disponibilidad PM")) return ['habil'];
                 if (shiftType.includes("Fin de semana")) return ['sabado', 'domingo', 'festivo'];
                 if (shiftType.includes("Entre semana")) return ['habil'];
                 return ['habil', 'sabado', 'domingo', 'festivo'];
@@ -262,7 +263,17 @@
                 if (shift.room === "Sala 7" && !isSaturday) {
                     updateShift(shift.id, 'room', "");
                 }
-            }, [shift.type, shift.date, isNightOrAvail]);
+                // Limpiar Salas P1-P7 y U si la fecha cambió y ya no es Dom/Festivo
+                const isRestrictedRoomSelected = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "U"].includes(shift.room);
+                if (isRestrictedRoomSelected && currentDayType && currentDayType !== 'domingo' && currentDayType !== 'festivo') {
+                    updateShift(shift.id, 'room', "");
+                }
+                // Limpiar Sala CS, Sala 2 a 9 si la fecha es Dom/Festivo (se excluye Sala 7 porque se limpia en la regla de arriba)
+                const isStandardRoomSelected = ["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 8", "Sala 9"].includes(shift.room);
+                if (isStandardRoomSelected && currentDayType && (currentDayType === 'domingo' || currentDayType === 'festivo')) {
+                    updateShift(shift.id, 'room', "");
+                }
+            }, [shift.type, shift.date, isNightOrAvail, currentDayType]);
 
             return (
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 mb-4 transition-all hover:shadow-md">
@@ -331,10 +342,27 @@
                                         <optgroup key={groupName} label={groupName}>
                                             {rooms.map((room, i) => {
                                                 const isSala7 = room === "Sala 7";
-                                                const isDisabled = isSala7 && !isSaturday;
+                                                const isSundayOrHoliday = currentDayType === 'domingo' || currentDayType === 'festivo';
+                                                const isRestrictedRoom = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "U"].includes(room);
+                                                const isStandardRoom = ["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 8", "Sala 9"].includes(room);
+                                                
+                                                let isDisabled = false;
+                                                let disabledReason = "";
+                                                
+                                                if (isSala7 && !isSaturday) {
+                                                    isDisabled = true;
+                                                    disabledReason = "(Solo Sábados)";
+                                                } else if (isStandardRoom && isSundayOrHoliday) {
+                                                    isDisabled = true;
+                                                    disabledReason = "(No disp. Dom/Fest)";
+                                                } else if (isRestrictedRoom && !isSundayOrHoliday) {
+                                                    isDisabled = true;
+                                                    disabledReason = "(Solo Dom/Fest)";
+                                                }
+                                                
                                                 return (
                                                     <option key={`${groupName}-${i}`} value={room} disabled={isDisabled}>
-                                                        {room} {isDisabled ? "(Solo Sábados)" : ""}
+                                                        {room} {disabledReason}
                                                     </option>
                                                 )
                                             })}
