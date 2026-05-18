@@ -60,7 +60,41 @@
             "Disponibilidad": ["Disponibilidad AM", "Disponibilidad PM", "Disponibilidad Noche", "Disponibilidad U2"]
         };
 
-        const FALLBACK_DOCTORS = ["Dr. Juan Pérez (Respaldo)", "Dra. María Gómez (Respaldo)", "Dr. Carlos Ruiz (Respaldo)"];
+        const FALLBACK_DOCTORS = [
+            "CARLOS ANDRES CARTAGENA ARCINIEGAS",
+            "MARIA ALEJANDRA GUTIERREZ AMORTEGUI",
+            "ANGELA MARIA BURGOS SANABRIA",
+            "FANNY ALEXANDRA ORTIZ BAQUERO",
+            "DANIEL FERNANDO GARCIA ZEA",
+            "ANDRES MARCELO DIAZ CLAVIJO",
+            "EDNA MILENA RAMIREZ VELANDIA",
+            "KEVIN BELTRAN RICAURTE",
+            "LAURA MARGARITA DIAZ FRANCO",
+            "OSCAR DAVID GOMEZ HIDALGO",
+            "LIZETH PAOLA MORA JAIMES",
+            "ELKIN GUSTAVO PINZON SANCHEZ",
+            "ANDRES CAMILO HERRERA MONCADA",
+            "MARIA JUANITA NORATO PEDRAZA",
+            "NATALIA PEÑA PULIDO",
+            "SANTIAGO BECERRA PATIÑO",
+            "DAVID ALEJANDRO BOLAÑOS",
+            "VIVIANA SORAYA FONSECA BARBOSA",
+            "LAURA NARANJO OSUNA",
+            "DIANA MILENA MUÑETONES BUITRAGO",
+            "NIDIA CATALINA LEON RODRIGUEZ",
+            "SEBASTIAN BARRAGAN BARRETO",
+            "JUAN SEBASTIAN LAZARO ORJUELA",
+            "LAURA SOFIA SARAZA SALGADO",
+            "NATALIA ALEJANDRA GOMEZ JIMENEZ",
+            "NATALIA PAOLA ACOSTA RODRIGUEZ",
+            "CARLOS ANDRES SANCHEZ TRIANA",
+            "LUIS ARTURO MOLINA LAGUNA",
+            "ANA MARIA SANDOVAL RESTREPO",
+            "DANIEL SANTIAGO OQUENDO MAYORGA",
+            "VALENTINA MARTIN GALVIS",
+            "XIMENA ANDREA CASTELBLANCO",
+            "STEFANNY MARTINEZ QUESADA"
+        ];
 
         const ROOMS_GROUPED = {
             "Puente Aranda": ["Sala A", "Sala B", "Sala C", "Sala D", "Sala E"],
@@ -70,12 +104,53 @@
             ]
         };
 
-        // Festivos de Colombia 2025, 2026, 2027
-        const HOLIDAYS = [
-            "2025-01-01", "2025-01-06", "2025-03-24", "2025-04-17", "2025-04-18", "2025-05-01", "2025-06-02", "2025-06-23", "2025-06-30", "2025-07-20", "2025-08-07", "2025-08-18", "2025-10-13", "2025-11-03", "2025-11-17", "2025-12-08", "2025-12-25",
-            "2026-01-01", "2026-01-12", "2026-03-23", "2026-04-02", "2026-04-03", "2026-05-01", "2026-05-18", "2026-06-08", "2026-06-15", "2026-06-29", "2026-07-20", "2026-08-07", "2026-08-17", "2026-10-12", "2026-11-02", "2026-11-16", "2026-12-08", "2026-12-25",
-            "2027-01-01", "2027-01-11", "2027-03-22", "2027-03-25", "2027-03-26", "2027-05-01", "2027-05-10", "2027-05-31", "2027-06-07", "2027-07-05", "2027-07-20", "2027-08-07", "2027-08-16", "2027-10-18", "2027-11-01", "2027-11-15", "2027-12-08", "2027-12-25"
-        ];
+        // Generador automático de Festivos de Colombia (Ley Emiliani) para 50 años
+        const generateColombianHolidays = (startYear, yearsAhead) => {
+            let holidays = [];
+            for (let year = startYear; year <= startYear + yearsAhead; year++) {
+                const add = (m, d) => holidays.push(`${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+                // Festivos Fijos
+                add(1, 1); add(5, 1); add(7, 20); add(8, 7); add(12, 8); add(12, 25);
+                
+                // Ley Emiliani (mover al lunes)
+                const addEmiliani = (m, d) => {
+                    let date = new Date(year, m - 1, d);
+                    let day = date.getDay();
+                    if (day !== 1) date.setDate(date.getDate() + (day === 0 ? 1 : 8 - day));
+                    holidays.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`);
+                };
+                addEmiliani(1, 6); addEmiliani(3, 19); addEmiliani(6, 29); addEmiliani(8, 15); addEmiliani(10, 12); addEmiliani(11, 1); addEmiliani(11, 11);
+
+                // Cálculo de Semana Santa (Algoritmo de Meeus/Jones/Butcher)
+                let a = year % 19, b = Math.floor(year / 100), c = year % 100, d = Math.floor(b / 4), e = b % 4;
+                let f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+                let i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+                let m = Math.floor((a + 11 * h + 22 * l) / 451), month = Math.floor((h + l - 7 * m + 114) / 31) - 1, day = ((h + l - 7 * m + 114) % 31) + 1;
+                
+                let easter = new Date(year, month, day);
+                const addDays = (date, days) => {
+                    let res = new Date(date);
+                    res.setDate(res.getDate() + days);
+                    return res;
+                };
+                const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                const moveToMonday = (date) => {
+                    let dateDay = date.getDay();
+                    if (dateDay !== 1) date.setDate(date.getDate() + (dateDay === 0 ? 1 : 8 - dateDay));
+                    return formatDate(date);
+                };
+
+                holidays.push(formatDate(addDays(easter, -3))); // Jueves Santo
+                holidays.push(formatDate(addDays(easter, -2))); // Viernes Santo
+                holidays.push(moveToMonday(addDays(easter, 39))); // Ascensión
+                holidays.push(moveToMonday(addDays(easter, 60))); // Corpus Christi
+                holidays.push(moveToMonday(addDays(easter, 68))); // Sagrado Corazón
+            }
+            return holidays;
+        };
+
+        const currentYear = new Date().getFullYear();
+        const HOLIDAYS = generateColombianHolidays(currentYear - 1, 50); // Genera desde el año pasado hasta 50 años en el futuro
 
         // Función para saber qué tipo de día es
         const getDayType = (dateString) => {
@@ -113,12 +188,26 @@
         const CustomCalendar = ({ value, onChange, allowedTypes }) => {
             const [isOpen, setIsOpen] = useState(false);
             const [viewDate, setViewDate] = useState(value ? new Date(value + 'T12:00:00') : new Date());
+            const [showYearPicker, setShowYearPicker] = useState(false);
+            const [yearPage, setYearPage] = useState(viewDate.getFullYear());
             
             const viewMonth = viewDate.getMonth();
             const viewYear = viewDate.getFullYear();
 
-            const handlePrevMonth = (e) => { e.stopPropagation(); setViewDate(new Date(viewYear, viewMonth - 1, 1)); };
-            const handleNextMonth = (e) => { e.stopPropagation(); setViewDate(new Date(viewYear, viewMonth + 1, 1)); };
+            useEffect(() => {
+                if (!showYearPicker) setYearPage(viewDate.getFullYear());
+            }, [viewDate, showYearPicker]);
+
+            const handlePrev = (e) => { 
+                e.stopPropagation(); 
+                if (showYearPicker) setYearPage(prev => prev - 12);
+                else setViewDate(new Date(viewYear, viewMonth - 1, 1)); 
+            };
+            const handleNext = (e) => { 
+                e.stopPropagation(); 
+                if (showYearPicker) setYearPage(prev => prev + 12);
+                else setViewDate(new Date(viewYear, viewMonth + 1, 1)); 
+            };
 
             const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
             const firstDay = new Date(viewYear, viewMonth, 1).getDay();
@@ -144,72 +233,95 @@
                     
                     {isOpen && (
                         <div className="absolute z-50 mt-1 bg-white border border-slate-200 shadow-2xl rounded-xl p-4 w-72 sm:w-80 left-0">
-                            <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}></div>
+                            <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setIsOpen(false); setShowYearPicker(false); }}></div>
                             
                             <div className="relative z-50">
                                 <div className="flex justify-between items-center mb-4">
-                                    <button type="button" onClick={handlePrevMonth} className="p-1.5 hover:bg-slate-100 text-slate-500 rounded-lg font-bold">&lt;</button>
-                                    <span className="font-bold text-slate-700 capitalize">{MONTH_NAMES[viewMonth]} {viewYear}</span>
-                                    <button type="button" onClick={handleNextMonth} className="p-1.5 hover:bg-slate-100 text-slate-500 rounded-lg font-bold">&gt;</button>
+                                    <button type="button" onClick={handlePrev} className="p-1.5 hover:bg-slate-100 text-slate-500 rounded-lg font-bold">&lt;</button>
+                                    <span 
+                                        onClick={(e) => { e.stopPropagation(); setShowYearPicker(!showYearPicker); }}
+                                        className="font-bold text-slate-700 capitalize cursor-pointer hover:text-keralty-blue px-2 py-1 rounded hover:bg-slate-50 transition-colors"
+                                    >
+                                        {showYearPicker ? `${yearPage - 5} - ${yearPage + 6}` : `${MONTH_NAMES[viewMonth]} ${viewYear}`}
+                                    </span>
+                                    <button type="button" onClick={handleNext} className="p-1.5 hover:bg-slate-100 text-slate-500 rounded-lg font-bold">&gt;</button>
                                 </div>
                                 
-                                <div className="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-bold text-slate-400">
-                                    <div>L</div><div>M</div><div>X</div><div>J</div><div>V</div><div>S</div><div>D</div>
-                                </div>
-                                
-                                <div className="grid grid-cols-7 gap-1">
-                                    {days.map((day, idx) => {
-                                        if (!day) return <div key={idx}></div>;
-                                        
-                                        const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                                        const dayType = getDayType(dateStr);
-                                        
-                                        const isPast = dateStr < todayString;
-                                        const isAllowed = allowedTypes.includes(dayType) && !isPast;
-                                        
-                                        let colorClasses = "";
-                                        if (!isAllowed) {
-                                            colorClasses = "bg-slate-50 text-slate-300 cursor-not-allowed opacity-40";
-                                        } else {
-                                            if (dayType === 'festivo') colorClasses = "bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-200 border";
-                                            else if (dayType === 'domingo') colorClasses = "bg-red-100 text-red-800 hover:bg-red-200 border-red-200 border";
-                                            else if (dayType === 'sabado') colorClasses = "bg-blue-100 text-blue-800 hover:bg-blue-200 border-blue-200 border";
-                                            else colorClasses = "bg-white text-slate-700 hover:bg-slate-100 border-slate-200 border";
-                                        }
-
-                                        const isSelected = value === dateStr;
-                                        if (isSelected) colorClasses += " ring-2 ring-keralty-blue ring-offset-1";
-
-                                        return (
+                                {showYearPicker ? (
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {Array.from({ length: 12 }, (_, i) => yearPage - 5 + i).map(y => (
                                             <div 
-                                                key={idx}
+                                                key={y}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    if (isAllowed) {
-                                                        onChange(dateStr);
-                                                        setIsOpen(false);
-                                                    }
+                                                    setViewDate(new Date(y, viewMonth, 1));
+                                                    setShowYearPicker(false);
                                                 }}
-                                                className={`h-8 sm:h-9 flex items-center justify-center rounded text-sm font-medium cursor-pointer transition-colors ${colorClasses}`}
+                                                className={`h-10 flex items-center justify-center rounded text-sm font-medium cursor-pointer transition-colors ${y === viewYear ? 'bg-keralty-blue text-white shadow-sm' : 'bg-slate-50 text-slate-700 hover:bg-slate-200'}`}
                                             >
-                                                {day}
+                                                {y}
                                             </div>
-                                        );
-                                    })}
-                                </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-bold text-slate-400">
+                                            <div>L</div><div>M</div><div>X</div><div>J</div><div>V</div><div>S</div><div>D</div>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-7 gap-1">
+                                            {days.map((day, idx) => {
+                                                if (!day) return <div key={idx}></div>;
+                                                
+                                                const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                                                const dayType = getDayType(dateStr);
+                                                
+                                                const isPast = dateStr < todayString;
+                                                const isAllowed = allowedTypes.includes(dayType) && !isPast;
+                                                
+                                                let colorClasses = "";
+                                                if (!isAllowed) {
+                                                    colorClasses = "bg-slate-50 text-slate-300 cursor-not-allowed opacity-40";
+                                                } else {
+                                                    if (dayType === 'festivo') colorClasses = "bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-200 border";
+                                                    else if (dayType === 'domingo') colorClasses = "bg-red-100 text-red-800 hover:bg-red-200 border-red-200 border";
+                                                    else if (dayType === 'sabado') colorClasses = "bg-blue-100 text-blue-800 hover:bg-blue-200 border-blue-200 border";
+                                                    else colorClasses = "bg-white text-slate-700 hover:bg-slate-100 border-slate-200 border";
+                                                }
+
+                                                const isSelected = value === dateStr;
+                                                if (isSelected) colorClasses += " ring-2 ring-keralty-blue ring-offset-1";
+
+                                                return (
+                                                    <div 
+                                                        key={idx}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (isAllowed) {
+                                                                onChange(dateStr);
+                                                                setIsOpen(false);
+                                                            }
+                                                        }}
+                                                        className={`h-8 sm:h-9 flex items-center justify-center rounded text-sm font-medium cursor-pointer transition-colors ${colorClasses}`}
+                                                    >
+                                                        {day}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
 
                                 <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-[10px] sm:text-xs text-slate-500 font-medium">
                                     <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-white border border-slate-300 mr-1.5"></span> Hábil</div>
                                     <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-blue-300 mr-1.5"></span> Sábado</div>
                                     <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-red-300 mr-1.5"></span> Domingo</div>
                                     <div className="flex items-center"><span className="w-2.5 h-2.5 rounded-full bg-purple-300 mr-1.5"></span> Festivo</div>
-                                </div>
-
-                                {allowedTypes.length < 4 && (
-                                    <div className="mt-3 text-[10.5px] text-amber-700 bg-amber-50 p-2 rounded-lg flex items-start leading-tight border border-amber-100">
-                                        <IconAlert size={14} className="mr-1.5 shrink-0 mt-0.5" /> 
-                                        El tipo de jornada seleccionada aplicó filtros de días a este calendario.
-                                    </div>
+                                        {allowedTypes.length < 4 && (
+                                            <div className="mt-3 text-[10.5px] text-amber-700 bg-amber-50 p-2 rounded-lg flex items-start leading-tight border border-amber-100">
+                                                <IconAlert size={14} className="mr-1.5 shrink-0 mt-0.5" /> 
+                                                El tipo de jornada seleccionada aplicó filtros de días a este calendario.
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                             </div>
                         </div>
