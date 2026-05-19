@@ -39,7 +39,7 @@
         const { useState, useEffect, useRef } = React;
 
         // --- CONFIGURACIONES ---
-        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxRz1tRyQ2u-h49apHsISAtxmCL6FH0IaWIYCTCXWM6Bg2K5MskS5lOPomS0mBT2jU/exec";
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxxxnMUgFfxWooYTAtk34WHNL54apPmAElkYnUc7VkQMlXGn5HbXLPzvsSsEHuoSFoa/exec";
         const GOOGLE_CLIENT_ID = "984259317461-jdt2jq6fv654n8lkn6347f846e04s0hl.apps.googleusercontent.com";
 
         const ALLOWED_EMAILS = ["admin@clinica.com", "tiagobp77@gmail.com", "santiagobp.md@gmail.com"];
@@ -354,15 +354,35 @@
                 fetchDoctors();
             }, []);
 
-            const handleGoogleResponse = (response) => {
+            const handleGoogleResponse = async (response) => {
                 setIsLoggingIn(true);
                 try {
                     const payload = parseJwt(response.credential);
-                    if (payload && (ALLOWED_EMAILS.includes(payload.email) || ALLOWED_EMAILS.length === 0)) {
-                        setUser({ name: payload.name, email: payload.email, photoUrl: payload.picture });
-                    } else setToast({ message: "Correo no autorizado por Google Sign-In.", type: "error" });
-                } catch (error) { setToast({ message: "Error al autenticar con Google.", type: "error" });
-                } finally { setIsLoggingIn(false); }
+                    if (payload && payload.email) {
+                        const params = new URLSearchParams({
+                            action: 'googleAuth',
+                            email: payload.email,
+                            name: payload.name,
+                            photoUrl: payload.picture || ""
+                        });
+                        const res = await fetch(`${GOOGLE_SCRIPT_URL}?${params.toString()}`);
+                        const result = await res.json();
+
+                        if (result.status === 'success') {
+                            setUser(result.user);
+                        } else {
+                            // Muestra que la cuenta está pendiente o bloqueada
+                            setToast({ message: result.message || "No autorizado.", type: "warning" });
+                            if (window.google) window.google.accounts.id.disableAutoSelect();
+                        }
+                    } else {
+                        setToast({ message: "No se pudo extraer la información de Google.", type: "error" });
+                    }
+                } catch (error) { 
+                    setToast({ message: "Error de conexión con el servidor.", type: "error" });
+                } finally { 
+                    setIsLoggingIn(false); 
+                }
             };
 
             // NUEVO: Inicio de Sesión con la Base de Datos (Sheets)
