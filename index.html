@@ -39,7 +39,7 @@
         const { useState, useEffect, useRef } = React;
 
         // --- CONFIGURACIONES ---
-        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxxxnMUgFfxWooYTAtk34WHNL54apPmAElkYnUc7VkQMlXGn5HbXLPzvsSsEHuoSFoa/exec";
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyXyFWLXnhTNH7gJf8zD_rBSbPsKtvDDHJiGJ8UG5vgM8LZaQ1FXCr4TavlwhvYlv6m/exec";
         const GOOGLE_CLIENT_ID = "984259317461-jdt2jq6fv654n8lkn6347f846e04s0hl.apps.googleusercontent.com";
 
         const ALLOWED_EMAILS = ["admin@clinica.com", "tiagobp77@gmail.com", "santiagobp.md@gmail.com"];
@@ -320,12 +320,12 @@
             const [history, setHistory] = useState([]);
             const [doctorsList, setDoctorsList] = useState([]);
             const [isLoadingDoctors, setIsLoadingDoctors] = useState(true);
+            const [isPendingApproval, setIsPendingApproval] = useState(false);
             
             const parseJwt = (token) => { try { return JSON.parse(atob(token.split('.')[1])); } catch (e) { return null; } };
 
             useEffect(() => {
-                if (user || authMode !== 'login') return;
-                const initGoogleSignIn = () => {
+                if (user || authMode !== 'login' || isPendingApproval) return;
                     if (window.google && document.getElementById("googleSignInDiv")) {
                         window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleResponse });
                         window.google.accounts.id.renderButton(document.getElementById("googleSignInDiv"), { theme: "outline", size: "large", width: "100%", shape: "rectangular" });
@@ -370,8 +370,10 @@
 
                         if (result.status === 'success') {
                             setUser(result.user);
+                        } else if (result.status === 'pending' || (result.message && result.message.includes('pendiente'))) {
+                            setIsPendingApproval(true);
+                            if (window.google) window.google.accounts.id.disableAutoSelect();
                         } else {
-                            // Muestra que la cuenta está pendiente o bloqueada
                             setToast({ message: result.message || "No autorizado.", type: "warning" });
                             if (window.google) window.google.accounts.id.disableAutoSelect();
                         }
@@ -385,7 +387,6 @@
                 }
             };
 
-            // NUEVO: Inicio de Sesión con la Base de Datos (Sheets)
             const handleEmailLogin = async (e) => {
                 e.preventDefault();
                 setIsLoggingIn(true);
@@ -400,6 +401,8 @@
 
                     if (result.status === 'success') {
                         setUser(result.user);
+                    } else if (result.status === 'pending' || (result.message && result.message.includes('pendiente'))) {
+                        setIsPendingApproval(true);
                     } else {
                         setToast({ message: result.message || "Credenciales incorrectas.", type: "error" });
                     }
@@ -410,7 +413,6 @@
                 }
             };
 
-            // NUEVO: Registro de cuenta en la Base de Datos (Sheets)
             const handleRegister = async (e) => {
                 e.preventDefault();
                 setIsLoggingIn(true);
@@ -425,10 +427,8 @@
                     const response = await fetch(`${GOOGLE_SCRIPT_URL}?${params.toString()}`);
                     const result = await response.json();
 
-                    if (result.status === 'success') {
-                        setToast({ message: "Cuenta solicitada. Espera la autorización del administrador.", type: "success" });
-                        setAuthMode('login'); // Regresa a la vista de login
-                        setFormData({ name: '', email: '', phone: '', password: '' }); // Limpia el formulario
+                    if (result.status === 'success' || result.status === 'pending') {
+                        setIsPendingApproval(true);
                     } else {
                         setToast({ message: result.message || "Error al crear cuenta.", type: "error" });
                     }
@@ -464,6 +464,25 @@
                 } catch (error) { setToast({ message: "Error al guardar.", type: "error" });
                 } finally { setIsSubmitting(false); }
             };
+
+            if (isPendingApproval) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
+                        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center border-t-4 border-amber-400 animate-fade-in">
+                            <div className="mx-auto w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mb-6">
+                                <IconClock size={32} />
+                            </div>
+                            <h2 className="text-2xl font-bold text-slate-800 mb-4">Autorización Pendiente</h2>
+                            <p className="text-slate-600 mb-6 leading-relaxed">
+                                Tu cuenta ha sido registrada correctamente. <strong className="text-slate-800 block mt-2">Una vez el administrador le dé acceso se le enviará un correo indicando que ya puede entrar.</strong>
+                            </p>
+                            <button onClick={() => window.location.reload()} className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-slate-700 bg-slate-50 hover:bg-slate-200 border border-slate-200 transition-colors">
+                                <IconRefresh size={18} className="mr-2" /> Recargar página
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
 
             if (!user) {
                 return (
