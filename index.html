@@ -39,7 +39,7 @@
         const { useState, useEffect, useRef } = React;
 
         // --- CONFIGURACIONES ---
-        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzwte9BRChet1CyatXLw2R8L20nnSE7E6X76SBGDaVn2bfOB8GUUv8GPnT_B_kss0Bt/exec";
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxRz1tRyQ2u-h49apHsISAtxmCL6FH0IaWIYCTCXWM6Bg2K5MskS5lOPomS0mBT2jU/exec";
         const GOOGLE_CLIENT_ID = "984259317461-jdt2jq6fv654n8lkn6347f846e04s0hl.apps.googleusercontent.com";
 
         const ALLOWED_EMAILS = ["admin@clinica.com", "tiagobp77@gmail.com", "santiagobp.md@gmail.com"];
@@ -406,8 +406,9 @@
                     const result = await response.json();
 
                     if (result.status === 'success') {
-                        setUser({ name: formData.name, email: formData.email, photoUrl: "", phone: formData.phone });
-                        setToast({ message: "¡Cuenta creada exitosamente!", type: "success" });
+                        setToast({ message: "Cuenta solicitada. Espera la autorización del administrador.", type: "success" });
+                        setAuthMode('login'); // Regresa a la vista de login
+                        setFormData({ name: '', email: '', phone: '', password: '' }); // Limpia el formulario
                     } else {
                         setToast({ message: result.message || "Error al crear cuenta.", type: "error" });
                     }
