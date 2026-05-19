@@ -326,17 +326,20 @@
 
             useEffect(() => {
                 if (user || authMode !== 'login' || isPendingApproval) return;
+                
+                const initGoogleSignIn = () => {
                     if (window.google && document.getElementById("googleSignInDiv")) {
                         window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleResponse });
                         window.google.accounts.id.renderButton(document.getElementById("googleSignInDiv"), { theme: "outline", size: "large", width: "100%", shape: "rectangular" });
                     }
                 };
+                
                 const scriptId = 'google-gsi-client';
                 if (!document.getElementById(scriptId)) {
                     const script = document.createElement('script'); script.id = scriptId; script.src = 'https://accounts.google.com/gsi/client'; script.async = true; script.onload = initGoogleSignIn;
                     document.body.appendChild(script);
                 } else { setTimeout(initGoogleSignIn, 100); }
-            }, [user, authMode]);
+            }, [user, authMode, isPendingApproval]);
 
             useEffect(() => {
                 const fetchDoctors = async () => {
