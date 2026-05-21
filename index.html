@@ -45,7 +45,7 @@
         const { useState, useEffect, useRef } = React;
 
         // --- CONFIGURACIONES ---
-        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyXyFWLXnhTNH7gJf8zD_rBSbPsKtvDDHJiGJ8UG5vgM8LZaQ1FXCr4TavlwhvYlv6m/exec";
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwGwVvIcfTQMEvt20I7QOUbCFDxHf332IclZPtbssq0rFHW1VDSiKObhK-BL56ADaHK/exec";
         const GOOGLE_CLIENT_ID = "984259317461-jdt2jq6fv654n8lkn6347f846e04s0hl.apps.googleusercontent.com";
 
         const ALLOWED_EMAILS = ["admin@clinica.com", "tiagobp77@gmail.com", "santiagobp.md@gmail.com"];
@@ -322,6 +322,7 @@
             const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '' });
             const [showPasswordModal, setShowPasswordModal] = useState(false);
             const [passwordData, setPasswordData] = useState({ old: '', new: '', confirm: '' });
+            const [showEmailLogin, setShowEmailLogin] = useState(false);
             
             const [shifts, setShifts] = useState([{ id: '1', person: '', type: '', date: '', room: '' }]);
             const [isSubmitting, setIsSubmitting] = useState(false);
@@ -437,6 +438,7 @@
                     if (result.status === 'success') {
                         setToast({ message: "Se ha enviado una nueva contraseña a tu correo.", type: "success" });
                         setAuthMode('login');
+                        setShowEmailLogin(false);
                         setFormData({ name: '', email: '', phone: '', password: '' });
                     } else {
                         setToast({ message: result.message || "Error al restablecer contraseña.", type: "error" });
@@ -505,7 +507,7 @@
             };
 
             const handleLogout = () => { 
-                setUser(null); setShifts([{ id: '1', person: '', type: '', date: '', room: '' }]); setFormData({ name: '', email: '', phone: '', password: '' }); setValidationError("");
+                setUser(null); setShifts([{ id: '1', person: '', type: '', date: '', room: '' }]); setFormData({ name: '', email: '', phone: '', password: '' }); setValidationError(""); setShowEmailLogin(false);
                 if (window.google) window.google.accounts.id.disableAutoSelect();
             };
             const addShift = () => { setValidationError(""); setShifts([...shifts, { id: Date.now().toString(), person: '', type: '', date: '', room: '' }]); };
@@ -569,7 +571,7 @@
                                     <div><label className="text-sm font-medium text-slate-600 flex items-center"><IconPhone size={16} className="mr-1"/> Teléfono celular</label><input required type="tel" placeholder="300 123 4567" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" /></div>
                                     <div><label className="text-sm font-medium text-slate-600 flex items-center"><IconLock size={16} className="mr-1"/> Contraseña</label><input required minLength="6" type="password" placeholder="••••••••" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" /></div>
                                     <button type="submit" disabled={isLoggingIn} className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-white bg-keralty-green hover:opacity-90 transition-opacity disabled:opacity-70 mt-6">{isLoggingIn ? <IconRefresh className="animate-spin mr-2" /> : null} Crear cuenta e ingresar</button>
-                                    <p className="text-sm text-center text-slate-500 mt-4">¿Ya tienes cuenta? <button type="button" onClick={() => { setAuthMode('login'); setFormData({ name: '', email: '', phone: '', password: '' }); }} className="text-keralty-blue font-semibold hover:underline focus:outline-none">Inicia sesión</button></p>
+                                    <p className="text-sm text-center text-slate-500 mt-4">¿Ya tienes cuenta? <button type="button" onClick={() => { setAuthMode('login'); setFormData({ name: '', email: '', phone: '', password: '' }); setShowEmailLogin(false); }} className="text-keralty-blue font-semibold hover:underline focus:outline-none">Inicia sesión</button></p>
                                 </form>
                             ) : authMode === 'forgot' ? (
                                 <form onSubmit={handleResetPassword} className="space-y-4 text-left animate-fade-in">
@@ -577,7 +579,7 @@
                                     <p className="text-sm text-slate-500 text-center mb-4">Ingresa tu correo y te enviaremos una contraseña temporal nueva.</p>
                                     <div><label className="text-sm font-medium text-slate-600 flex items-center"><IconMail size={16} className="mr-1"/> Correo electrónico</label><input required type="email" placeholder="correo@ejemplo.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" /></div>
                                     <button type="submit" disabled={isLoggingIn} className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 transition-colors disabled:opacity-70 mt-6">{isLoggingIn ? <IconRefresh className="animate-spin mr-2" /> : null} Enviar nueva contraseña</button>
-                                    <p className="text-sm text-center text-slate-500 mt-4"><button type="button" onClick={() => { setAuthMode('login'); setFormData({ name: '', email: '', phone: '', password: '' }); }} className="text-keralty-blue font-semibold hover:underline focus:outline-none">Volver al inicio de sesión</button></p>
+                                    <p className="text-sm text-center text-slate-500 mt-4"><button type="button" onClick={() => { setAuthMode('login'); setFormData({ name: '', email: '', phone: '', password: '' }); setShowEmailLogin(false); }} className="text-keralty-blue font-semibold hover:underline focus:outline-none">Volver al inicio de sesión</button></p>
                                 </form>
                             ) : (
                                 <div className="space-y-5 animate-fade-in">
@@ -585,19 +587,37 @@
                                     <div className="flex justify-center min-h-[44px]">
                                         {isLoggingIn ? <button disabled className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-white bg-slate-400"><IconRefresh className="animate-spin mr-2" /> Validando...</button> : <div id="googleSignInDiv" className="w-full flex justify-center"></div>}
                                     </div>
-                                    <div className="relative flex items-center py-2"><div className="flex-grow border-t border-slate-200"></div><span className="flex-shrink-0 mx-4 text-slate-400 text-xs uppercase font-semibold tracking-wider">o con tu correo</span><div className="flex-grow border-t border-slate-200"></div></div>
-                                    <form onSubmit={handleEmailLogin} className="space-y-4 text-left">
-                                        <div><label className="text-sm font-medium text-slate-600 flex items-center"><IconMail size={16} className="mr-1"/> Correo electrónico</label><input required type="email" placeholder="correo@ejemplo.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" /></div>
-                                        <div>
-                                            <div className="flex justify-between items-center mb-1">
-                                                <label className="text-sm font-medium text-slate-600 flex items-center"><IconLock size={16} className="mr-1"/> Contraseña</label>
-                                                <button type="button" onClick={() => { setAuthMode('forgot'); setFormData({ name: '', email: '', phone: '', password: '' }); }} className="text-xs text-keralty-blue font-semibold hover:underline focus:outline-none">¿Olvidaste tu contraseña?</button>
-                                            </div>
-                                            <input required type="password" placeholder="••••••••" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" />
+                                    
+                                    {!showEmailLogin ? (
+                                        <div className="relative flex items-center py-6 cursor-pointer group" onClick={() => setShowEmailLogin(true)}>
+                                            <div className="flex-grow border-t border-slate-200 transition-colors group-hover:border-slate-300"></div>
+                                            <span className="flex-shrink-0 mx-4 text-slate-400 text-xs uppercase font-semibold tracking-wider transition-colors group-hover:text-keralty-blue flex items-center">
+                                                O con tu correo
+                                                <span className="ml-1"><IconChevronDown size={14} /></span>
+                                            </span>
+                                            <div className="flex-grow border-t border-slate-200 transition-colors group-hover:border-slate-300"></div>
                                         </div>
-                                        <button type="submit" disabled={isLoggingIn} className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-white bg-keralty-blue hover:bg-blue-900 transition-colors disabled:opacity-70">{isLoggingIn ? <IconRefresh className="animate-spin mr-2" /> : null} Ingresar</button>
-                                    </form>
-                                    <p className="text-sm text-center text-slate-500 mt-4">¿No tienes cuenta? <button type="button" onClick={() => { setAuthMode('register'); setFormData({ name: '', email: '', phone: '', password: '' }); }} className="text-keralty-green font-semibold hover:underline focus:outline-none">Regístrate aquí</button></p>
+                                    ) : (
+                                        <>
+                                            <div className="relative flex items-center py-2">
+                                                <div className="flex-grow border-t border-slate-200"></div>
+                                                <span className="flex-shrink-0 mx-4 text-slate-400 text-xs uppercase font-semibold tracking-wider">iniciar sesión con correo</span>
+                                                <div className="flex-grow border-t border-slate-200"></div>
+                                            </div>
+                                            <form onSubmit={handleEmailLogin} className="space-y-4 text-left animate-fade-in">
+                                                <div><label className="text-sm font-medium text-slate-600 flex items-center"><IconMail size={16} className="mr-1"/> Correo electrónico</label><input required type="email" placeholder="correo@ejemplo.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" /></div>
+                                                <div>
+                                                    <div className="flex justify-between items-center mb-1">
+                                                        <label className="text-sm font-medium text-slate-600 flex items-center"><IconLock size={16} className="mr-1"/> Contraseña</label>
+                                                        <button type="button" onClick={() => { setAuthMode('forgot'); setFormData({ name: '', email: '', phone: '', password: '' }); }} className="text-xs text-keralty-blue font-semibold hover:underline focus:outline-none">¿Olvidaste tu contraseña?</button>
+                                                    </div>
+                                                    <input required type="password" placeholder="••••••••" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" />
+                                                </div>
+                                                <button type="submit" disabled={isLoggingIn} className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-white bg-keralty-blue hover:bg-blue-900 transition-colors disabled:opacity-70">{isLoggingIn ? <IconRefresh className="animate-spin mr-2" /> : null} Ingresar</button>
+                                            </form>
+                                            <p className="text-sm text-center text-slate-500 mt-4 animate-fade-in">¿No tienes cuenta? <button type="button" onClick={() => { setAuthMode('register'); setFormData({ name: '', email: '', phone: '', password: '' }); setShowEmailLogin(false); }} className="text-keralty-green font-semibold hover:underline focus:outline-none">Regístrate aquí</button></p>
+                                        </>
+                                    )}
                                 </div>
                             )}
                         </div>
