@@ -1,6 +1,6 @@
 {
-  "short_name": "Turnos",
-  "name": "Gestor de Cambios de Turno",
+  "short_name": "TurnoSync",
+  "name": "TurnoSync",
   "icons": [
     { "src": "./icon-192x192.png", "type": "image/png", "sizes": "192x192" },
     { "src": "./icon-512x512.png", "type": "image/png", "sizes": "512x512" }
