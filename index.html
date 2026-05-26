@@ -757,13 +757,14 @@
                             </section>
                         )}
                     </main>
-                    <IosInstallPrompt />
                 </div>
             );
         };
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+       const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(
+            <React.Fragment>
+                <App />
+                <IosInstallPrompt />
+            </React.Fragment>
+        );
