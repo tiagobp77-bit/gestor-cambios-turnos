@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-   <title>TurnoSync - Gestión Cambios de Turno</title>
+    <title>TurnoSync - Gestión Cambios de Turno</title>
     
-   <link rel="icon" type="image/png" href="./icon-192x192-3.png">
+    <link rel="icon" type="image/png" href="./icon-192x192-3.png">
     <link rel="apple-touch-icon" href="./icon-192x192-3.png">
     
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -154,14 +154,15 @@
             if (!isIos || isStandalone) return null;
 
             return (
-                <div style={{ position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#ffffff', padding: '16px', borderRadius: '12px', boxShadow: '0 8px 24px rgba(0,0,0,0.15)', zIndex: 9999, width: '90%', maxWidth: '350px', textAlign: 'center', border: '1px solid #e0e0e0' }}>
-                    <p style={{ margin: '0 0 8px 0', fontSize: '15px', fontWeight: '600', color: '#1a1a1a' }}>📱 Instala la App de Turnos</p>
+                <div style={{ backgroundColor: '#ffffff', padding: '16px', borderRadius: '16px', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)', width: '100%', maxWidth: '448px', textAlign: 'center', border: '1px solid #e2e8f0', marginTop: '24px' }}>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '15px', fontWeight: '600', color: '#1a1a1a' }}>📱 Instala TurnoSync</p>
                     <p style={{ margin: 0, fontSize: '14px', color: '#555', lineHeight: '1.4' }}>
-                     Toca <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{display: 'inline', margin: '0 2px', verticalAlign: 'text-bottom'}}><circle cx="12" cy="12" r="1.5"></circle><circle cx="19" cy="12" r="1.5"></circle><circle cx="5" cy="12" r="1.5"></circle></svg>, luego el ícono de Compartir <span style={{fontSize: '18px', margin: '0 2px'}}>⍐</span> y abajo selecciona <strong>"Agregar a inicio"</strong> ➕.
+                        Toca <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{display: 'inline', margin: '0 2px', verticalAlign: 'text-bottom'}}><circle cx="12" cy="12" r="1.5"></circle><circle cx="19" cy="12" r="1.5"></circle><circle cx="5" cy="12" r="1.5"></circle></svg>, luego el ícono de Compartir <span style={{fontSize: '18px', margin: '0 2px'}}>⍐</span> y abajo selecciona <strong>"Agregar a inicio"</strong> ➕.
                     </p>
                 </div>
             );
         };
+
         const CustomCalendar = ({ value, onChange, allowedTypes }) => {
             const [isOpen, setIsOpen] = useState(false);
             const [viewDate, setViewDate] = useState(value ? new Date(value + 'T12:00:00') : new Date());
@@ -565,7 +566,7 @@
 
             if (isPendingApproval) {
                 return (
-                    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
+                    <div className="min-h-screen flex flex-col items-center justify-center p-4 py-8 bg-slate-100">
                         <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center border-t-4 border-amber-400 animate-fade-in">
                             <div className="mx-auto w-16 h-16 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mb-6">
                                 <IconClock size={32} />
@@ -584,7 +585,7 @@
 
             if (!user) {
                 return (
-                    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
+                    <div className="min-h-screen flex flex-col items-center justify-center p-4 py-8 bg-slate-100">
                         <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center border-t-4 border-keralty-green transition-all">
                             <img src="https://lh3.googleusercontent.com/d/1R09YUf7Fk8OS4nA2603qtIsEqRr9CxXb" alt="Keralty" className="h-12 mx-auto mb-6 object-contain" />
                             <h2 className="text-3xl font-bold text-keralty-blue">Ayudantes CUC/PA</h2>
