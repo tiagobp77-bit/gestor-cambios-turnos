@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ayudantes CUC/PA - Gestión Cambios de Turno</title>
+   <title>TurnoSync - Gestión Cambios de Turno</title>
     
     <link rel="icon" type="image/png" href="https://lh3.googleusercontent.com/d/10v1gJPTcmNTv-q2q-Nbc1lh2YRDzP4VI">
     <link rel="apple-touch-icon" href="https://lh3.googleusercontent.com/d/10v1gJPTcmNTv-q2q-Nbc1lh2YRDzP4VI">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Turnos CUC/PA">
+    <meta name="apple-mobile-web-app-title" content="TurnoSync">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     
     <link rel="manifest" href="./manifest.json">
@@ -650,6 +650,7 @@
                             )}
                         </div>
                         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+                        <IosInstallPrompt />
                     </div>
                 );
             }
@@ -762,9 +763,8 @@
         };
 
        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(
-            <React.Fragment>
-                <App />
-                <IosInstallPrompt />
-            </React.Fragment>
+        root.render(<App />);
+    </script>
+</body>
+</html>
         );
