@@ -1,0 +1,12 @@
+{
+  "short_name": "Turnos",
+  "name": "Gestor de Cambios de Turno",
+  "icons": [
+    { "src": "./icon-192x192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "./icon-512x512.png", "type": "image/png", "sizes": "512x512" }
+  ],
+  "start_url": "./index.html",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#f8fafc"
+}
