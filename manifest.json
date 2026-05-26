@@ -2,8 +2,8 @@
   "short_name": "TurnoSync",
   "name": "TurnoSync",
   "icons": [
-    { "src": "./icon-192x192-2.png", "type": "image/png", "sizes": "192x192" },
-    { "src": "./icon-512x512-2.png", "type": "image/png", "sizes": "512x512" }
+    { "src": "./icon-192x192-3.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "./icon-512x512-3.png", "type": "image/png", "sizes": "512x512" }
   ],
   "start_url": "./index.html",
   "display": "standalone",
