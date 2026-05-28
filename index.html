@@ -651,7 +651,7 @@
                         </div>
                         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                         
-                        <IosInstallPrompt />
+                        <InstallPrompt />
                     </div>
                 );
             }
@@ -679,7 +679,7 @@
                             </div>
                         </div>
                     </header>
-
+                    
                     {/* Modal para cambiar contraseña */}
                     {showPasswordModal && (
                         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
