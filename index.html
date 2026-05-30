@@ -850,39 +850,83 @@
                                         No tienes turnos pendientes a futuro solicitados por ti.
                                     </div>
                                 ) : (
-                                    <div className="overflow-x-auto">
-                                        <table className="min-w-full divide-y divide-slate-200">
-                                            <thead className="bg-slate-50">
-                                                <tr>
-                                                    <th className="px-6 py-3 w-12 text-left">
-                                                        <input type="checkbox" onChange={handleSelectAll} checked={selectedHistory.length === history.length && history.length > 0} className="w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" />
-                                                    </th>
-                                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Fecha Turno</th>
-                                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Profesional</th>
-                                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Jornada</th>
-                                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Sala</th>
-                                                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Estado</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-200">
-                                                {history.map((entry) => (
-                                                    <tr key={entry.rowId} className={`hover:bg-slate-50 transition-colors ${selectedHistory.includes(entry.rowId) ? 'bg-blue-50/50' : ''}`}>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            <input type="checkbox" checked={selectedHistory.includes(entry.rowId)} onChange={(e) => handleSelectHistory(entry.rowId, e.target.checked)} className="w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" />
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-medium">{entry.fecha}</td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">{entry.persona}</td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{entry.jornada}</td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500"><span className="bg-slate-100 px-2 py-1 rounded font-medium">{entry.sala}</span></td>
-                                                        <td className="px-6 py-4 whitespace-nowrap"><span className="px-2 py-1 text-xs font-semibold rounded-full bg-keralty-green text-white">{entry.estado}</span></td>
+                                    <div>
+                                        {/* VISTA PARA COMPUTADORAS (Tabla) */}
+                                        <div className="hidden md:block overflow-x-auto">
+                                            <table className="min-w-full divide-y divide-slate-200">
+                                                <thead className="bg-slate-50">
+                                                    <tr>
+                                                        <th className="px-6 py-3 w-12 text-left">
+                                                            <input type="checkbox" onChange={handleSelectAll} checked={selectedHistory.length === history.length && history.length > 0} className="w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" />
+                                                        </th>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Fecha Turno</th>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Profesional</th>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Jornada</th>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Sala</th>
+                                                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Estado</th>
                                                     </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-200">
+                                                    {history.map((entry) => (
+                                                        <tr key={entry.rowId} className={`hover:bg-slate-50 transition-colors ${selectedHistory.includes(entry.rowId) ? 'bg-blue-50/50' : ''}`}>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <input type="checkbox" checked={selectedHistory.includes(entry.rowId)} onChange={(e) => handleSelectHistory(entry.rowId, e.target.checked)} className="w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" />
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-medium">{entry.fecha}</td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">{entry.persona}</td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{entry.jornada}</td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500"><span className="bg-slate-100 px-2 py-1 rounded font-medium">{entry.sala}</span></td>
+                                                            <td className="px-6 py-4 whitespace-nowrap"><span className="px-2 py-1 text-xs font-semibold rounded-full bg-keralty-green text-white">{entry.estado}</span></td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        {/* VISTA PARA CELULARES (Tarjetas Compactas) */}
+                                        <div className="block md:hidden divide-y divide-slate-200">
+                                            <div className="p-4 bg-slate-50 flex items-center justify-between">
+                                                <label className="flex items-center text-sm font-medium text-slate-700 cursor-pointer">
+                                                    <input type="checkbox" onChange={handleSelectAll} checked={selectedHistory.length === history.length && history.length > 0} className="mr-3 w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" />
+                                                    Seleccionar todos
+                                                </label>
+                                            </div>
+                                            {history.map((entry) => (
+                                                <div 
+                                                    key={entry.rowId} 
+                                                    onClick={() => handleSelectHistory(entry.rowId, !selectedHistory.includes(entry.rowId))}
+                                                    className={`p-4 transition-colors cursor-pointer ${selectedHistory.includes(entry.rowId) ? 'bg-blue-50/60' : 'hover:bg-slate-50 bg-white'}`}
+                                                >
+                                                    <div className="flex items-start">
+                                                        <div className="pt-0.5">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={selectedHistory.includes(entry.rowId)} 
+                                                                onChange={(e) => handleSelectHistory(entry.rowId, e.target.checked)} 
+                                                                onClick={(e) => e.stopPropagation()} 
+                                                                className="mr-3 w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" 
+                                                            />
+                                                        </div>
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                <span className="font-bold text-slate-800 text-sm flex items-center"><IconCalendar size={14} className="mr-1.5 text-slate-400" /> {entry.fecha}</span>
+                                                                <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-keralty-green text-white">{entry.estado}</span>
+                                                            </div>
+                                                            <p className="text-sm font-semibold text-keralty-blue mb-2">{entry.persona}</p>
+                                                            <div className="flex flex-col space-y-1.5">
+                                                                <p className="text-xs text-slate-600 flex items-center"><span className="text-slate-400 mr-2"><IconClock size={14} /></span> {entry.jornada}</p>
+                                                                <p className="text-xs text-slate-600 flex items-center"><span className="text-slate-400 mr-2"><IconLayout size={14} /></span> {entry.sala}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
                                         
+                                        {/* BOTÓN DE ELIMINAR (Adaptable) */}
                                         {selectedHistory.length > 0 && (
                                             <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end animate-fade-in">
-                                                <button onClick={() => setShowCancelModal(true)} className="flex items-center px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors shadow-sm font-medium">
+                                                <button onClick={() => setShowCancelModal(true)} className="flex justify-center items-center px-4 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors shadow-sm font-medium w-full md:w-auto">
                                                     <IconTrash size={18} className="mr-2" /> Eliminar {selectedHistory.length} cambio(s)
                                                 </button>
                                             </div>
