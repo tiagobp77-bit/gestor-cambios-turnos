@@ -24,11 +24,11 @@
                     },
                     animation: { 
                         'bounce-short': 'bounce 1s ease-in-out 3',
-                        'fade-in': 'fadeIn 0.3s ease-out'
+                        'fade-in': 'fadeIn 0.5s ease-out'
                     },
                     keyframes: {
                         fadeIn: {
-                            '0%': { opacity: '0', transform: 'translateY(-5px)' },
+                            '0%': { opacity: '0', transform: 'translateY(-10px)' },
                             '100%': { opacity: '1', transform: 'translateY(0)' },
                         }
                     }
@@ -39,7 +39,7 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; }</style>
+    <style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; overflow-x: hidden; }</style>
 </head>
 <body>
     <div id="root"></div>
@@ -359,6 +359,9 @@
         };
 
         const App = () => {
+            const [showSplash, setShowSplash] = useState(true);
+            const [fadeSplash, setFadeSplash] = useState(false);
+
             const [user, setUser] = useState(null);
             const [isLoggingIn, setIsLoggingIn] = useState(false);
             const [authMode, setAuthMode] = useState('login');
@@ -385,8 +388,17 @@
             
             const parseJwt = (token) => { try { return JSON.parse(atob(token.split('.')[1])); } catch (e) { return null; } };
 
+            // ANIMACIÓN DEL SPLASH SCREEN
             useEffect(() => {
-                if (user || authMode !== 'login' || isPendingApproval) return;
+                const timer1 = setTimeout(() => setFadeSplash(true), 2000);
+                const timer2 = setTimeout(() => setShowSplash(false), 2500);
+                return () => { clearTimeout(timer1); clearTimeout(timer2); };
+            }, []);
+
+            useEffect(() => {
+                // AQUI ESTÁ LA SOLUCIÓN DEL BOTÓN DE GOOGLE:
+                // Esperamos a que showSplash sea false para renderizar el botón
+                if (showSplash || user || authMode !== 'login' || isPendingApproval) return;
                 
                 const initGoogleSignIn = () => {
                     if (window.google && document.getElementById("googleSignInDiv")) {
@@ -400,7 +412,7 @@
                     const script = document.createElement('script'); script.id = scriptId; script.src = 'https://accounts.google.com/gsi/client'; script.async = true; script.onload = initGoogleSignIn;
                     document.body.appendChild(script);
                 } else { setTimeout(initGoogleSignIn, 100); }
-            }, [user, authMode, isPendingApproval]);
+            }, [showSplash, user, authMode, isPendingApproval]); // Añadimos showSplash a las dependencias
 
             useEffect(() => {
                 const fetchDoctors = async () => {
@@ -653,6 +665,20 @@
                     setIsCancelling(false);
                 }
             };
+
+            // RENDERIZADO DEL SPLASH SCREEN
+            if (showSplash) {
+                return (
+                    <div className={`fixed inset-0 z-[9999] bg-white flex flex-col items-center justify-center transition-opacity duration-500 ease-in-out ${fadeSplash ? 'opacity-0' : 'opacity-100'}`}>
+                        <div className="animate-bounce-short">
+                            <img src="https://lh3.googleusercontent.com/d/1R09YUf7Fk8OS4nA2603qtIsEqRr9CxXb" alt="Keralty" className="h-20 object-contain mb-4" />
+                        </div>
+                        <h1 className="text-4xl font-bold text-keralty-blue animate-fade-in">TurnoSync</h1>
+                        <p className="text-slate-500 mt-2 font-medium animate-fade-in" style={{ animationDelay: '0.2s' }}>Gestión de Turnos</p>
+                        <div className="mt-10 w-10 h-10 border-4 border-slate-200 border-t-keralty-green rounded-full animate-spin"></div>
+                    </div>
+                );
+            }
 
             if (isPendingApproval) {
                 return (
