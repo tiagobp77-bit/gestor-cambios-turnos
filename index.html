@@ -365,7 +365,7 @@
             const [user, setUser] = useState(null);
             const [isLoggingIn, setIsLoggingIn] = useState(false);
             const [authMode, setAuthMode] = useState('login');
-            const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '' });
+            const [formData, setFormData] = useState({ name: '', email: '', phone: '', password: '', confirmPassword: '' });
             const [showPasswordModal, setShowPasswordModal] = useState(false);
             const [passwordData, setPasswordData] = useState({ old: '', new: '', confirm: '' });
             const [showEmailLogin, setShowEmailLogin] = useState(false);
@@ -524,7 +524,7 @@
                         setToast({ message: "Se ha enviado una nueva contraseña a tu correo.", type: "success" });
                         setAuthMode('login');
                         setShowEmailLogin(false);
-                        setFormData({ name: '', email: '', phone: '', password: '' });
+                        setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' });
                     } else {
                         setToast({ message: result.message || "Error al restablecer contraseña.", type: "error" });
                     }
@@ -537,6 +537,9 @@
 
             const handleRegister = async (e) => {
                 e.preventDefault();
+                if (formData.password !== formData.confirmPassword) {
+                    return setToast({ message: "Las contraseñas no coinciden.", type: "error" });
+                }
                 setIsLoggingIn(true);
                 try {
                     const params = new URLSearchParams({
@@ -592,7 +595,7 @@
             };
 
             const handleLogout = () => { 
-                setUser(null); setShifts([{ id: '1', person: '', type: '', date: '', room: '' }]); setFormData({ name: '', email: '', phone: '', password: '' }); setValidationError(""); setShowEmailLogin(false);
+                setUser(null); setShifts([{ id: '1', person: '', type: '', date: '', room: '' }]); setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' }); setValidationError(""); setShowEmailLogin(false);
                 if (window.google) window.google.accounts.id.disableAutoSelect();
             };
             const addShift = () => { setValidationError(""); setShifts([...shifts, { id: Date.now().toString(), person: '', type: '', date: '', room: '' }]); };
@@ -714,8 +717,9 @@
                                     <div><label className="text-sm font-medium text-slate-600 flex items-center"><IconMail size={16} className="mr-1"/> Correo electrónico</label><input required type="email" placeholder="juan@ejemplo.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" /></div>
                                     <div><label className="text-sm font-medium text-slate-600 flex items-center"><IconPhone size={16} className="mr-1"/> Teléfono celular</label><input required type="tel" placeholder="300 123 4567" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" /></div>
                                     <div><label className="text-sm font-medium text-slate-600 flex items-center"><IconLock size={16} className="mr-1"/> Contraseña</label><input required minLength="6" type="password" placeholder="••••••••" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" /></div>
+                                    <div><label className="text-sm font-medium text-slate-600 flex items-center"><IconLock size={16} className="mr-1"/> Confirmar Contraseña</label><input required minLength="6" type="password" placeholder="••••••••" value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" /></div>
                                     <button type="submit" disabled={isLoggingIn} className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-white bg-keralty-green hover:opacity-90 transition-opacity disabled:opacity-70 mt-6">{isLoggingIn ? <IconRefresh className="animate-spin mr-2" /> : null} Crear cuenta e ingresar</button>
-                                    <p className="text-sm text-center text-slate-500 mt-4">¿Ya tienes cuenta? <button type="button" onClick={() => { setAuthMode('login'); setFormData({ name: '', email: '', phone: '', password: '' }); setShowEmailLogin(false); }} className="text-keralty-blue font-semibold hover:underline focus:outline-none">Inicia sesión</button></p>
+                                    <p className="text-sm text-center text-slate-500 mt-4">¿Ya tienes cuenta? <button type="button" onClick={() => { setAuthMode('login'); setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' }); setShowEmailLogin(false); }} className="text-keralty-blue font-semibold hover:underline focus:outline-none">Inicia sesión</button></p>
                                 </form>
                             ) : authMode === 'forgot' ? (
                                 <form onSubmit={handleResetPassword} className="space-y-4 text-left animate-fade-in">
@@ -723,7 +727,7 @@
                                     <p className="text-sm text-slate-500 text-center mb-4">Ingresa tu correo y te enviaremos una contraseña temporal nueva.</p>
                                     <div><label className="text-sm font-medium text-slate-600 flex items-center"><IconMail size={16} className="mr-1"/> Correo electrónico</label><input required type="email" placeholder="correo@ejemplo.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" /></div>
                                     <button type="submit" disabled={isLoggingIn} className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 transition-colors disabled:opacity-70 mt-6">{isLoggingIn ? <IconRefresh className="animate-spin mr-2" /> : null} Enviar nueva contraseña</button>
-                                    <p className="text-sm text-center text-slate-500 mt-4"><button type="button" onClick={() => { setAuthMode('login'); setFormData({ name: '', email: '', phone: '', password: '' }); setShowEmailLogin(false); }} className="text-keralty-blue font-semibold hover:underline focus:outline-none">Volver al inicio de sesión</button></p>
+                                    <p className="text-sm text-center text-slate-500 mt-4"><button type="button" onClick={() => { setAuthMode('login'); setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' }); setShowEmailLogin(false); }} className="text-keralty-blue font-semibold hover:underline focus:outline-none">Volver al inicio de sesión</button></p>
                                 </form>
                             ) : (
                                 <div className="space-y-5 animate-fade-in">
@@ -753,13 +757,13 @@
                                                 <div>
                                                     <div className="flex justify-between items-center mb-1">
                                                         <label className="text-sm font-medium text-slate-600 flex items-center"><IconLock size={16} className="mr-1"/> Contraseña</label>
-                                                        <button type="button" onClick={() => { setAuthMode('forgot'); setFormData({ name: '', email: '', phone: '', password: '' }); }} className="text-xs text-keralty-blue font-semibold hover:underline focus:outline-none">¿Olvidaste tu contraseña?</button>
+                                                        <button type="button" onClick={() => { setAuthMode('forgot'); setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' }); }} className="text-xs text-keralty-blue font-semibold hover:underline focus:outline-none">¿Olvidaste tu contraseña?</button>
                                                     </div>
                                                     <input required type="password" placeholder="••••••••" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" />
                                                 </div>
                                                 <button type="submit" disabled={isLoggingIn} className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-white bg-keralty-blue hover:bg-blue-900 transition-colors disabled:opacity-70">{isLoggingIn ? <IconRefresh className="animate-spin mr-2" /> : null} Ingresar</button>
                                             </form>
-                                            <p className="text-sm text-center text-slate-500 mt-4 animate-fade-in">¿No tienes cuenta? <button type="button" onClick={() => { setAuthMode('register'); setFormData({ name: '', email: '', phone: '', password: '' }); setShowEmailLogin(false); }} className="text-keralty-green font-semibold hover:underline focus:outline-none">Regístrate aquí</button></p>
+                                            <p className="text-sm text-center text-slate-500 mt-4 animate-fade-in">¿No tienes cuenta? <button type="button" onClick={() => { setAuthMode('register'); setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' }); setShowEmailLogin(false); }} className="text-keralty-green font-semibold hover:underline focus:outline-none">Regístrate aquí</button></p>
                                         </>
                                     )}
                                 </div>
