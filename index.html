@@ -48,7 +48,7 @@
         const { useState, useEffect, useRef } = React;
 
         // --- CONFIGURACIONES ---
-        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzYveShfItivHur5hSRoppY33Q0_SjLhKjdCpR_hMwlY4oeQPWvAltXnnr6C5lRRQmM/exec";
+        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwAo8zE_IfzcKYQ3xmNMz5nnE78jyDrmN2H7LXd65lIp2rLe7anMVpixWALrRtBUc3Y/exec";
         const GOOGLE_CLIENT_ID = "984259317461-jdt2jq6fv654n8lkn6347f846e04s0hl.apps.googleusercontent.com";
 
         const ALLOWED_EMAILS = ["admin@clinica.com", "tiagobp77@gmail.com", "NUEVO_CORREO@gmail.com"];
@@ -276,6 +276,8 @@
 
             const getAllowedDayTypes = (shiftType) => {
                 if (!shiftType) return ['habil', 'sabado', 'domingo', 'festivo'];
+                if (shiftType.includes("Extendido Sabado")) return ['sabado'];
+                if (shiftType.includes("Extendido 1") || shiftType.includes("Extendido 2") || shiftType.includes("Extendido 3")) return ['habil'];
                 if (shiftType.includes("Disponibilidad U2")) return ['domingo', 'festivo'];
                 if (shiftType.includes("Disponibilidad AM") || shiftType.includes("Disponibilidad PM")) return ['habil'];
                 if (shiftType.includes("Fin de semana")) return ['sabado', 'domingo', 'festivo'];
@@ -294,7 +296,19 @@
                 
                 const isStandardRoomSelected = ["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 8", "Sala 9"].includes(shift.room);
                 if (isStandardRoomSelected && currentDayType && (currentDayType === 'domingo' || currentDayType === 'festivo')) updateShift(shift.id, 'room', "");
-            }, [shift.type, shift.date, isNightOrAvail, currentDayType]);
+
+                // Validar bloqueo retroactivo de salas de excelencia si el usuario cambia el médico
+                const selectedDoc = doctorsList.find(d => d.name === shift.person) || {};
+                const docGroup = (selectedDoc.group || "").toLowerCase();
+                
+                const isCaderasRoom = shift.room === "Sala Caderas";
+                const isSugarbakerRoom = shift.room === "Sala Sugarbaker";
+                const isMicrocirugiaRoom = shift.room === "Sala Microcirugía";
+                
+                if (isCaderasRoom && !docGroup.includes("caderas")) updateShift(shift.id, 'room', "");
+                if (isSugarbakerRoom && !docGroup.includes("sugarbaker")) updateShift(shift.id, 'room', "");
+                if (isMicrocirugiaRoom && !docGroup.includes("microcirug")) updateShift(shift.id, 'room', "");
+            }, [shift.type, shift.date, shift.person, isNightOrAvail, currentDayType]);
 
             return (
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 mb-4 transition-all hover:shadow-md">
@@ -308,7 +322,7 @@
                             <div className="relative">
                                 <select value={shift.person} onChange={(e) => updateShift(shift.id, 'person', e.target.value)} className="w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700">
                                     <option value="">{isLoadingDoctors ? "Cargando..." : "Seleccione..."}</option>
-                                    {doctorsList.map((doc, i) => <option key={i} value={doc}>{doc}</option>)}
+                                    {doctorsList.map((doc, i) => <option key={i} value={doc.name}>{doc.name}</option>)}
                                 </select>
                                 <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                             </div>
@@ -340,10 +354,21 @@
                                                 const isRestrictedRoom = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "U"].includes(room);
                                                 const isStandardRoom = ["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 8", "Sala 9"].includes(room);
                                                 
+                                                const selectedDoc = doctorsList.find(d => d.name === shift.person) || {};
+                                                const docGroup = (selectedDoc.group || "").toLowerCase();
+                                                
+                                                const isCaderasRoom = room === "Sala Caderas";
+                                                const isSugarbakerRoom = room === "Sala Sugarbaker";
+                                                const isMicrocirugiaRoom = room === "Sala Microcirugía";
+                                                
                                                 let isDisabled = false; let disabledReason = "";
                                                 if (isSala7 && !isSaturday) { isDisabled = true; disabledReason = "(Solo Sábados)"; }
                                                 else if (isStandardRoom && isSundayOrHoliday) { isDisabled = true; disabledReason = "(No disp. Dom/Fest)"; }
                                                 else if (isRestrictedRoom && !isSundayOrHoliday) { isDisabled = true; disabledReason = "(Solo Dom/Fest)"; }
+                                                else if (isCaderasRoom && !docGroup.includes("caderas")) { isDisabled = true; disabledReason = "(Solo G. Caderas)"; }
+                                                else if (isSugarbakerRoom && !docGroup.includes("sugarbaker")) { isDisabled = true; disabledReason = "(Solo G. Sugarbaker)"; }
+                                                else if (isMicrocirugiaRoom && !docGroup.includes("microcirug")) { isDisabled = true; disabledReason = "(Solo G. Microcirugía)"; }
+                                                else if ((isCaderasRoom || isSugarbakerRoom || isMicrocirugiaRoom) && !shift.person) { isDisabled = true; disabledReason = "(Seleccione Médico)"; }
                                                 
                                                 return <option key={`${groupName}-${i}`} value={room} disabled={isDisabled}>{room} {disabledReason}</option>
                                             })}
