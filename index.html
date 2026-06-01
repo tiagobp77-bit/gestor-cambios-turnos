@@ -271,7 +271,7 @@
         };
 
         const ShiftEntry = ({ shift, index, updateShift, removeShift, doctorsList, isLoadingDoctors }) => {
-            const isNightOrAvail = shift.type.includes("Nocturnos") || shift.type.includes("Disponibilidad");
+            const isRoomNotRequired = shift.type.includes("Nocturnos") || shift.type.includes("Disponibilidad") || shift.type.includes("Extendido");
             const currentDayType = getDayType(shift.date);
             const isSaturday = currentDayType === 'sabado';
 
@@ -288,7 +288,7 @@
             const allowedDays = getAllowedDayTypes(shift.type);
 
             useEffect(() => {
-                if (isNightOrAvail && shift.room !== "") updateShift(shift.id, 'room', "");
+                if (isRoomNotRequired && shift.room !== "") updateShift(shift.id, 'room', "");
                 if (shift.date && !allowedDays.includes(currentDayType)) updateShift(shift.id, 'date', "");
                 if (shift.room === "Sala 7" && !isSaturday) updateShift(shift.id, 'room', "");
                 
@@ -309,7 +309,7 @@
                 if (isCaderasRoom && !docGroup.includes("caderas")) updateShift(shift.id, 'room', "");
                 if (isSugarbakerRoom && !docGroup.includes("sugarbaker")) updateShift(shift.id, 'room', "");
                 if (isMicrocirugiaRoom && !docGroup.includes("microcirug")) updateShift(shift.id, 'room', "");
-            }, [shift.type, shift.date, shift.person, isNightOrAvail, currentDayType]);
+            }, [shift.type, shift.date, shift.person, isRoomNotRequired, currentDayType]);
 
             return (
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 mb-4 transition-all hover:shadow-md">
@@ -345,8 +345,8 @@
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconLayout /></span> Sala Asignada</label>
                             <div className="relative">
-                                <select value={shift.room} onChange={(e) => updateShift(shift.id, 'room', e.target.value)} disabled={isNightOrAvail} className={`w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 ${isNightOrAvail ? 'opacity-50 cursor-not-allowed bg-slate-200' : ''}`}>
-                                    <option value="">{isNightOrAvail ? "No aplica" : "Seleccione sala..."}</option>
+                                <select value={shift.room} onChange={(e) => updateShift(shift.id, 'room', e.target.value)} disabled={isRoomNotRequired} className={`w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 ${isRoomNotRequired ? 'opacity-50 cursor-not-allowed bg-slate-200' : ''}`}>
+                                    <option value="">{isRoomNotRequired ? "No aplica" : "Seleccione sala..."}</option>
                                     {Object.entries(ROOMS_GROUPED).map(([groupName, rooms]) => (
                                         <optgroup key={groupName} label={groupName}>
                                             {rooms.map((room, i) => {
@@ -629,7 +629,7 @@
             const updateShift = (id, field, value) => { setValidationError(""); setShifts(shifts.map(s => s.id === id ? { ...s, [field]: value } : s)); };
 
             const handleSubmit = async () => {
-                const isValid = shifts.every(s => s.person && s.type && s.date && (s.type.includes("Nocturnos") || s.type.includes("Disponibilidad") || s.room));
+                const isValid = shifts.every(s => s.person && s.type && s.date && (s.type.includes("Nocturnos") || s.type.includes("Disponibilidad") || s.type.includes("Extendido") || s.room));
                 if (!isValid) {
                     setValidationError("⚠️ Faltan campos por diligenciar en uno o más turnos.");
                     return setToast({ message: "Completa todos los campos obligatorios.", type: "error" });
@@ -639,7 +639,7 @@
                 try {
                     const payload = {
                         solicitante: user.name, correoSolicitante: user.email,
-                        cambios: shifts.map(s => ({ persona: s.person, jornada: s.type, fecha: s.date, sala: (s.type.includes("Nocturnos") || s.type.includes("Disponibilidad")) ? "N/A" : s.room, timestamp: new Date().toISOString() }))
+                        cambios: shifts.map(s => ({ persona: s.person, jornada: s.type, fecha: s.date, sala: (s.type.includes("Nocturnos") || s.type.includes("Disponibilidad") || s.type.includes("Extendido")) ? "N/A" : s.room, timestamp: new Date().toISOString() }))
                     };
                     await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                     setToast({ message: "Solicitudes guardadas correctamente.", type: "success" });
