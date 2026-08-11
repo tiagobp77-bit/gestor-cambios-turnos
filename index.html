@@ -118,6 +118,20 @@
             return 'habil';
         };
 
+
+        const isRoomAvailableOnDate = (room, dateString) => {
+            if (!room || !dateString) return true;
+            const dayType = getDayType(dateString);
+            const isSundayOrHoliday = dayType === 'domingo' || dayType === 'festivo';
+            const restrictedRooms = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "U"];
+            const standardRooms = ["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 8", "Sala 9"];
+
+            if (room === "Sala 7") return dayType === 'sabado';
+            if (restrictedRooms.includes(room)) return isSundayOrHoliday;
+            if (standardRooms.includes(room)) return !isSundayOrHoliday;
+            return true;
+        };
+
         // --- ICONOS SVG ---
         const IconActivity = ({size=24}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>;
         const IconAlert = ({size=20, className=""}) => <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>;
@@ -263,6 +277,101 @@
             );
         };
 
+
+        const MultiDateCalendar = ({ selectedDates, onChange, allowedTypes, isDateAllowed }) => {
+            const [isOpen, setIsOpen] = useState(false);
+            const [viewDate, setViewDate] = useState(new Date());
+            const [showYearPicker, setShowYearPicker] = useState(false);
+            const [yearPage, setYearPage] = useState(viewDate.getFullYear());
+
+            const viewMonth = viewDate.getMonth();
+            const viewYear = viewDate.getFullYear();
+            const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+            const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+            const startOffset = (firstDay + 6) % 7;
+            const today = new Date();
+            const todayString = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, '0') + "-" + String(today.getDate()).padStart(2, '0');
+            const days = Array(startOffset).fill(null);
+            const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+            for (let day = 1; day <= daysInMonth; day++) days.push(day);
+
+            useEffect(() => {
+                if (!showYearPicker) setYearPage(viewDate.getFullYear());
+            }, [viewDate, showYearPicker]);
+
+            const toggleDate = (dateString) => {
+                const nextDates = selectedDates.includes(dateString)
+                    ? selectedDates.filter(date => date !== dateString)
+                    : [...selectedDates, dateString].sort();
+                onChange(nextDates);
+            };
+
+            const handlePrev = () => {
+                if (showYearPicker) setYearPage(current => current - 12);
+                else setViewDate(new Date(viewYear, viewMonth - 1, 1));
+            };
+
+            const handleNext = () => {
+                if (showYearPicker) setYearPage(current => current + 12);
+                else setViewDate(new Date(viewYear, viewMonth + 1, 1));
+            };
+
+            return (
+                <div className="relative">
+                    <button type="button" onClick={() => setIsOpen(true)} className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg flex justify-between items-center text-left text-slate-700 hover:bg-slate-50 transition-colors">
+                        <span>{selectedDates.length ? selectedDates.length + " fecha(s) adicional(es) seleccionada(s)" : "Seleccionar fechas adicionales..."}</span>
+                        <IconCalendar size={18} />
+                    </button>
+                    {isOpen && (
+                        <div className="absolute z-50 mt-1 bg-white border border-slate-200 shadow-2xl rounded-xl p-4 w-72 sm:w-80 left-0">
+                            <div className="fixed inset-0 z-40" onClick={() => { setIsOpen(false); setShowYearPicker(false); }}></div>
+                            <div className="relative z-50">
+                                <div className="flex justify-between items-center mb-3">
+                                    <button type="button" onClick={handlePrev} className="p-1.5 hover:bg-slate-100 text-slate-500 rounded-lg font-bold">&lt;</button>
+                                    <button type="button" onClick={() => setShowYearPicker(!showYearPicker)} className="font-bold text-slate-700 capitalize hover:text-keralty-blue px-2 py-1 rounded hover:bg-slate-50 transition-colors">
+                                        {showYearPicker ? (yearPage - 5) + " - " + (yearPage + 6) : monthNames[viewMonth] + " " + viewYear}
+                                    </button>
+                                    <button type="button" onClick={handleNext} className="p-1.5 hover:bg-slate-100 text-slate-500 rounded-lg font-bold">&gt;</button>
+                                </div>
+                                {showYearPicker ? (
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {Array.from({ length: 12 }, (_, index) => yearPage - 5 + index).map(year => (
+                                            <button type="button" key={year} onClick={() => { setViewDate(new Date(year, viewMonth, 1)); setShowYearPicker(false); }} className={`h-10 rounded text-sm font-medium transition-colors ${year === viewYear ? 'bg-keralty-blue text-white shadow-sm' : 'bg-slate-50 text-slate-700 hover:bg-slate-200'}`}>{year}</button>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <>
+                                        <p className="text-xs text-slate-500 mb-3 leading-relaxed">Selecciona todos los días en los que se repetirá exactamente este cambio. Puedes navegar entre meses.</p>
+                                        <div className="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-bold text-slate-400"><div>L</div><div>M</div><div>X</div><div>J</div><div>V</div><div>S</div><div>D</div></div>
+                                        <div className="grid grid-cols-7 gap-1">
+                                            {days.map((day, index) => {
+                                                if (!day) return <div key={index}></div>;
+                                                const dateString = viewYear + "-" + String(viewMonth + 1).padStart(2, '0') + "-" + String(day).padStart(2, '0');
+                                                const canSelect = allowedTypes.includes(getDayType(dateString)) && dateString >= todayString && (!isDateAllowed || isDateAllowed(dateString));
+                                                const isSelected = selectedDates.includes(dateString);
+                                                const classes = !canSelect
+                                                    ? "bg-slate-50 text-slate-300 cursor-not-allowed opacity-40"
+                                                    : (isSelected ? "bg-keralty-green text-white ring-2 ring-keralty-green ring-offset-1" : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200");
+
+                                                return <button type="button" key={index} disabled={!canSelect} onClick={() => toggleDate(dateString)} className={`h-8 sm:h-9 flex items-center justify-center rounded text-sm font-medium transition-colors ${classes}`}>{day}</button>;
+                                            })}
+                                        </div>
+                                        {selectedDates.length > 0 && (
+                                            <button type="button" onClick={() => onChange([])} className="mt-3 text-xs font-medium text-red-600 hover:text-red-700">Limpiar fechas adicionales</button>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    {selectedDates.length > 0 && (
+                        <p className="mt-2 text-xs text-slate-500 leading-relaxed">{selectedDates.join(", ")}</p>
+                    )}
+                </div>
+            );
+        };
+
         const Toast = ({ message, type, onClose }) => {
             useEffect(() => { const timer = setTimeout(onClose, 4000); return () => clearTimeout(timer); }, [onClose]);
             const bgColor = type === 'error' ? 'bg-red-500' : (type === 'warning' ? 'bg-amber-500' : 'bg-keralty-green');
@@ -286,6 +395,8 @@
                 return ['habil', 'sabado', 'domingo', 'festivo'];
             };
             const allowedDays = getAllowedDayTypes(shift.type);
+            const additionalDates = shift.additionalDates || [];
+            const additionalDatesKey = additionalDates.join('|');
 
             useEffect(() => {
                 if (isRoomNotRequired && shift.room !== "") updateShift(shift.id, 'room', "");
@@ -310,6 +421,18 @@
                 if (isSugarbakerRoom && !docGroup.includes("sugarbaker")) updateShift(shift.id, 'room', "");
                 if (isMicrocirugiaRoom && !docGroup.includes("microcirug")) updateShift(shift.id, 'room', "");
             }, [shift.type, shift.date, shift.person, isRoomNotRequired, currentDayType]);
+
+            useEffect(() => {
+                const validAdditionalDates = additionalDates.filter(date => (
+                    date !== shift.date &&
+                    allowedDays.includes(getDayType(date)) &&
+                    (isRoomNotRequired || !shift.room || isRoomAvailableOnDate(shift.room, date))
+                ));
+
+                if (validAdditionalDates.length !== additionalDates.length) {
+                    updateShift(shift.id, 'additionalDates', validAdditionalDates);
+                }
+            }, [shift.date, shift.type, shift.room, isRoomNotRequired, additionalDatesKey]);
 
             return (
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 mb-4 transition-all hover:shadow-md">
@@ -379,6 +502,26 @@
                                 <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                             </div>
                         </div>
+                        <div className="md:col-span-2 lg:col-span-4 border-t border-slate-100 pt-5">
+                            <label className="flex items-start gap-3 cursor-pointer text-sm font-medium text-slate-700">
+                                <input type="checkbox" checked={Boolean(shift.repeatToOtherDates)} onChange={(e) => {
+                                    updateShift(shift.id, 'repeatToOtherDates', e.target.checked);
+                                    if (!e.target.checked) updateShift(shift.id, 'additionalDates', []);
+                                }} className="mt-0.5 w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue" />
+                                <span>¿Quieres repetir este cambio en otras fechas?<span className="block mt-1 text-xs font-normal text-slate-500">La persona, jornada y sala se conservarán. Cada fecha se guardará como un cambio individual.</span></span>
+                            </label>
+                            {shift.repeatToOtherDates && (
+                                <div className="mt-4 p-4 bg-blue-50/60 border border-blue-100 rounded-lg">
+                                    <label className="text-sm font-medium text-keralty-blue block mb-2">Fechas adicionales</label>
+                                    <MultiDateCalendar
+                                        selectedDates={additionalDates}
+                                        onChange={(dates) => updateShift(shift.id, 'additionalDates', dates)}
+                                        allowedTypes={allowedDays}
+                                        isDateAllowed={(date) => date !== shift.date && (isRoomNotRequired || !shift.room || isRoomAvailableOnDate(shift.room, date))}
+                                    />
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             );
@@ -396,7 +539,7 @@
             const [passwordData, setPasswordData] = useState({ old: '', new: '', confirm: '' });
             const [showEmailLogin, setShowEmailLogin] = useState(false);
             
-            const [shifts, setShifts] = useState([{ id: '1', person: '', type: '', date: '', room: '' }]);
+            const [shifts, setShifts] = useState([{ id: '1', person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]);
             const [isSubmitting, setIsSubmitting] = useState(false);
             const [validationError, setValidationError] = useState("");
             const [toast, setToast] = useState(null);
@@ -621,32 +764,64 @@
             };
 
             const handleLogout = () => { 
-                setUser(null); setShifts([{ id: '1', person: '', type: '', date: '', room: '' }]); setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' }); setValidationError(""); setShowEmailLogin(false);
+                setUser(null); setShifts([{ id: '1', person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]); setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' }); setValidationError(""); setShowEmailLogin(false);
                 if (window.google) window.google.accounts.id.disableAutoSelect();
             };
-            const addShift = () => { setValidationError(""); setShifts([...shifts, { id: Date.now().toString(), person: '', type: '', date: '', room: '' }]); };
-            const removeShift = (id) => { setValidationError(""); setShifts(shifts.filter(s => s.id !== id)); };
-            const updateShift = (id, field, value) => { setValidationError(""); setShifts(shifts.map(s => s.id === id ? { ...s, [field]: value } : s)); };
+            const addShift = () => { setValidationError(""); setShifts(current => [...current, { id: Date.now().toString(), person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]); };
+            const removeShift = (id) => { setValidationError(""); setShifts(current => current.filter(s => s.id !== id)); };
+            const updateShift = (id, field, value) => { setValidationError(""); setShifts(current => current.map(s => s.id === id ? { ...s, [field]: value } : s)); };
 
             const handleSubmit = async () => {
-                const isValid = shifts.every(s => s.person && s.type && s.date && (s.type.includes("Nocturnos") || s.type.includes("Disponibilidad") || s.type.includes("Extendido") || s.room));
+                const individualShifts = shifts.flatMap(shift => {
+                    const dates = [shift.date, ...(shift.repeatToOtherDates ? (shift.additionalDates || []) : [])];
+                    return [...new Set(dates.filter(Boolean))].map(date => ({ ...shift, date }));
+                });
+
+                const isValid = individualShifts.every(shift => (
+                    shift.person &&
+                    shift.type &&
+                    shift.date &&
+                    (shift.type.includes("Nocturnos") || shift.type.includes("Disponibilidad") || shift.type.includes("Extendido") || shift.room)
+                ));
+                const hasUnavailableRoom = individualShifts.some(shift => (
+                    !shift.type.includes("Nocturnos") &&
+                    !shift.type.includes("Disponibilidad") &&
+                    !shift.type.includes("Extendido") &&
+                    !isRoomAvailableOnDate(shift.room, shift.date)
+                ));
+
                 if (!isValid) {
                     setValidationError("⚠️ Faltan campos por diligenciar en uno o más turnos.");
                     return setToast({ message: "Completa todos los campos obligatorios.", type: "error" });
                 }
+                if (hasUnavailableRoom) {
+                    setValidationError("⚠️ Una sala no está disponible para una de las fechas seleccionadas.");
+                    return setToast({ message: "Ajusta la sala o las fechas adicionales antes de guardar.", type: "error" });
+                }
+
                 setValidationError("");
                 setIsSubmitting(true);
                 try {
                     const payload = {
-                        solicitante: user.name, correoSolicitante: user.email,
-                        cambios: shifts.map(s => ({ persona: s.person, jornada: s.type, fecha: s.date, sala: (s.type.includes("Nocturnos") || s.type.includes("Disponibilidad") || s.type.includes("Extendido")) ? "N/A" : s.room, timestamp: new Date().toISOString() }))
+                        solicitante: user.name,
+                        correoSolicitante: user.email,
+                        cambios: individualShifts.map(shift => ({
+                            persona: shift.person,
+                            jornada: shift.type,
+                            fecha: shift.date,
+                            sala: (shift.type.includes("Nocturnos") || shift.type.includes("Disponibilidad") || shift.type.includes("Extendido")) ? "N/A" : shift.room,
+                            timestamp: new Date().toISOString()
+                        }))
                     };
                     await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    setToast({ message: "Solicitudes guardadas correctamente.", type: "success" });
-                    setShifts([{ id: Date.now().toString(), person: '', type: '', date: '', room: '' }]); 
-                    setTimeout(() => loadHistoryFromDB(), 2000); // Recargamos para que aparezca el nuevo turno en la tabla
-                } catch (error) { setToast({ message: "Error al guardar.", type: "error" });
-                } finally { setIsSubmitting(false); }
+                    setToast({ message: individualShifts.length + " solicitud(es) guardada(s) correctamente.", type: "success" });
+                    setShifts([{ id: Date.now().toString(), person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]);
+                    setTimeout(() => loadHistoryFromDB(), 2000);
+                } catch (error) {
+                    setToast({ message: "Error al guardar.", type: "error" });
+                } finally {
+                    setIsSubmitting(false);
+                }
             };
 
             // MANEJO DE SELECCIÓN PARA ELIMINAR TURNOS
