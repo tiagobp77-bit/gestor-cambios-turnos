@@ -1,29 +1,40 @@
 function escapeIcs(value) {
-  return String(value || "")
-    .replace(/\/g, "\\")
-    .replace(/\r?\n/g, "\n")
-    .replace(/;/g, "\;")
-    .replace(/,/g, "\,");
+  var text = String(value || "");
+  var slash = String.fromCharCode(92);
+  return text
+    .split(String.fromCharCode(13)).join("")
+    .split(String.fromCharCode(10)).join(slash + "n")
+    .split(";").join(slash + ";")
+    .split(",").join(slash + ",");
 }
 
 function isDateTime(value) {
-  return /^\d{8}T\d{6}$/.test(value);
+  return typeof value === "string" &&
+    value.length === 15 &&
+    value.charAt(8) === "T" &&
+    !Number.isNaN(Number(value.slice(0, 8) + value.slice(9)));
 }
 
-export default function handler(req, res) {
-  const { text = "Turno", dates = "", details = "", location = "" } = req.query;
-  const [start, end] = String(dates).split("/");
+module.exports = function handler(req, res) {
+  var text = req.query.text || "Turno";
+  var dates = req.query.dates || "";
+  var details = req.query.details || "";
+  var location = req.query.location || "";
+  var range = String(dates).split("/");
+  var start = range[0];
+  var end = range[1];
 
   if (!isDateTime(start) || !isDateTime(end)) {
-    res.status(400).send("Fechas de calendario inválidas.");
+    res.status(400).send("Fechas de calendario invalidas.");
     return;
   }
 
-  const stamp = new Date().toISOString()
-    .replace(/[-:]/g, "")
-    .replace(/\.\d{3}Z$/, "Z");
+  var stamp = new Date().toISOString()
+    .replaceAll("-", "")
+    .replaceAll(":", "")
+    .replace(".", "");
 
-  const ics = [
+  var ics = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//TurnoSync//Calendario//ES",
@@ -40,10 +51,10 @@ export default function handler(req, res) {
     "END:VEVENT",
     "END:VCALENDAR",
     ""
-  ].join("\r\n");
+  ].join(String.fromCharCode(13, 10));
 
   res.setHeader("Content-Type", "text/calendar; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="Turno_Asignado.ics"');
   res.setHeader("Cache-Control", "no-store");
   res.status(200).send(ics);
-}
+};
