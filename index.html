@@ -673,13 +673,14 @@
             const previousResetKeyRef = useRef(resetKey);
             const activeLot = lots.find(lot => lot.id === activeLotId) || lots[0];
             const activeChanges = changes.filter(change => change.lotId === activeLotId);
+            const sameDoctorChanges = changes.filter(change => activeLot && change.person === activeLot.doctor);
             const isRoomNotRequired = isRoomNotRequiredForType(draft.type);
             const allowedDays = getAllowedDayTypes(draft.type);
             const draftDayType = getDayType(draft.date);
-            const isDuplicateSchedule = activeChanges.some(change => change.date === draft.date && change.type === draft.type);
+            const isDuplicateSchedule = sameDoctorChanges.some(change => change.date === draft.date && change.type === draft.type);
             const isNightShift = (type) => String(type || "").includes("Nocturnos");
             const isExtendedShift = (type) => String(type || "").includes("Extendidos");
-            const hasNightExtendedConflict = activeChanges.some(change => (
+            const hasNightExtendedConflict = sameDoctorChanges.some(change => (
                 change.date === draft.date &&
                 ((isNightShift(change.type) && isExtendedShift(draft.type)) || (isExtendedShift(change.type) && isNightShift(draft.type)))
             ));
@@ -942,7 +943,7 @@
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconCalendar /></span> Fecha</label>
                                     {draft.type ? (
-                                        <CustomCalendar value={draft.date} onChange={(date) => setDraft(current => ({ ...current, date, room: "" }))} allowedTypes={allowedDays} isDateAllowed={(date) => !activeChanges.some(change => change.date === date && change.type === draft.type)} />
+                                        <CustomCalendar value={draft.date} onChange={(date) => setDraft(current => ({ ...current, date, room: "" }))} allowedTypes={allowedDays} isDateAllowed={(date) => !sameDoctorChanges.some(change => change.date === date && change.type === draft.type)} />
                                     ) : (
                                         <button type="button" onClick={() => setShowCalendarWarning(true)} className="button-press w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-lg flex justify-between items-center text-left text-slate-400">
                                             <span>Seleccionar fecha...</span>
