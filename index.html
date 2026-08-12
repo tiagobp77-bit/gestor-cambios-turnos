@@ -123,7 +123,44 @@
             "DIANA MILENA MUÑETONES BUITRAGO", "NIDIA CATALINA LEON RODRIGUEZ", "SEBASTIAN BARRAGAN BARRETO", "JUAN SEBASTIAN LAZARO ORJUELA", "LAURA SOFIA SARAZA SALGADO",
             "NATALIA ALEJANDRA GOMEZ JIMENEZ", "NATALIA PAOLA ACOSTA RODRIGUEZ", "CARLOS ANDRES SANCHEZ TRIANA", "LUIS ARTURO MOLINA LAGUNA", "ANA MARIA SANDOVAL RESTREPO",
             "DANIEL SANTIAGO OQUENDO MAYORGA", "VALENTINA MARTIN GALVIS", "XIMENA ANDREA CASTELBLANCO", "STEFANNY MARTINEZ QUESADA"
-        ].map(name => ({ name: name, group: "" }));
+        ].map(name => ({ name: name, group: "", schedule: "" }));
+
+        const DOCTOR_SCHEDULE_GROUPS = [
+            { key: "AM", label: "Médicos de la mañana" },
+            { key: "PM", label: "Médicos de la Tarde" },
+            { key: "NOCHE", label: "Médicos de la Noche" },
+            { key: "EXTENDIDO", label: "Médicos de Extendido" }
+        ];
+
+        const normalizeDoctorSchedule = (value) => String(value || "").trim().toUpperCase();
+        const formatDoctorName = (fullName) => {
+            const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
+            if (parts.length <= 2) return parts.join(" ");
+            return parts[0] + " " + parts[parts.length - 2];
+        };
+
+        const DoctorOptions = ({ doctorsList }) => {
+            const knownSchedules = DOCTOR_SCHEDULE_GROUPS.map(group => group.key);
+            const uncategorized = doctorsList.filter(doctor => !knownSchedules.includes(normalizeDoctorSchedule(doctor.schedule)));
+            return (
+                <React.Fragment>
+                    {DOCTOR_SCHEDULE_GROUPS.map(group => {
+                        const doctors = doctorsList.filter(doctor => normalizeDoctorSchedule(doctor.schedule) === group.key);
+                        if (doctors.length === 0) return null;
+                        return (
+                            <optgroup key={group.key} label={group.label}>
+                                {doctors.map(doctor => <option key={doctor.name} value={doctor.name}>{formatDoctorName(doctor.name)}</option>)}
+                            </optgroup>
+                        );
+                    })}
+                    {uncategorized.length > 0 && (
+                        <optgroup label="Otros médicos">
+                            {uncategorized.map(doctor => <option key={doctor.name} value={doctor.name}>{formatDoctorName(doctor.name)}</option>)}
+                        </optgroup>
+                    )}
+                </React.Fragment>
+            );
+        };
 
         const ROOMS_GROUPED = {
             "Puente Aranda": ["Sala A", "Sala B", "Sala C", "Sala D", "Sala E"],
@@ -500,7 +537,7 @@
                             <div className="relative">
                                 <select value={shift.person} onChange={(e) => updateShift(shift.id, 'person', e.target.value)} className="w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700">
                                     <option value="">{isLoadingDoctors ? "Cargando..." : "Seleccione..."}</option>
-                                    {doctorsList.map((doc, i) => <option key={i} value={doc.name}>{doc.name}</option>)}
+                                    <DoctorOptions doctorsList={doctorsList} />
                                 </select>
                                 <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                             </div>
@@ -616,6 +653,7 @@
             const [activeLotId, setActiveLotId] = useState(initialLotRef.current.id);
             const [draft, setDraft] = useState({ date: "", type: "", room: "" });
             const [showCalendarWarning, setShowCalendarWarning] = useState(false);
+            const [confirmation, setConfirmation] = useState(null);
             const activeLot = lots.find(lot => lot.id === activeLotId) || lots[0];
             const activeChanges = changes.filter(change => change.lotId === activeLotId);
             const isRoomNotRequired = isRoomNotRequiredForType(draft.type);
@@ -629,6 +667,7 @@
                 setActiveLotId(nextLot.id);
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
+                setConfirmation(null);
             }, [resetKey]);
 
             useEffect(() => {
@@ -711,11 +750,41 @@
                 }
             };
 
+            const hasUnsavedData = changes.length > 0 || lots.some(lot => lot.doctor) || Boolean(draft.date || draft.type || draft.room);
+
+            const resetAndLeave = () => {
+                const nextLot = createLot();
+                setLots([nextLot]);
+                setActiveLotId(nextLot.id);
+                setDraft({ date: "", type: "", room: "" });
+                setShowCalendarWarning(false);
+                setConfirmation(null);
+                onBack();
+            };
+
+            const requestBack = () => {
+                if (hasUnsavedData) {
+                    setConfirmation({ type: "back" });
+                    return;
+                }
+                resetAndLeave();
+            };
+
+            const confirmPendingAction = () => {
+                if (!confirmation) return;
+                if (confirmation.type === "delete") {
+                    removeLot(confirmation.lotId);
+                    setConfirmation(null);
+                    return;
+                }
+                resetAndLeave();
+            };
+
             return (
                 <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-visible">
                     <div className="bg-keralty-blue px-6 py-4 flex items-center justify-between rounded-t-lg">
                         <div className="flex items-center"><span className="text-keralty-green mr-2"><IconCalendar /></span><h2 className="text-lg font-semibold text-white">Cambios Múltiples</h2></div>
-                        <button type="button" onClick={onBack} className="text-sm text-white/90 hover:text-white font-medium">Volver</button>
+                        <button type="button" onClick={requestBack} className="text-sm text-white/90 hover:text-white font-medium">Volver</button>
                     </div>
 
                     <div className="p-6 bg-slate-50 space-y-6">
@@ -724,10 +793,10 @@
                                 {lots.map((lot, index) => (
                                     <div key={lot.id} className="inline-flex items-center">
                                         <button type="button" onClick={() => selectLot(lot.id)} className={`button-press px-3 py-2 text-sm font-medium border rounded-l-lg ${lot.id === activeLotId ? "bg-keralty-blue text-white border-keralty-blue" : "bg-white text-slate-600 border-slate-200 hover:bg-blue-50"}`}>
-                                            Lote {index + 1}{lot.doctor ? " · " + lot.doctor.split(" ")[0] : ""}
+                                            Lote {index + 1}{lot.doctor ? " · " + formatDoctorName(lot.doctor) : ""}
                                         </button>
                                         {lots.length > 1 && (
-                                            <button type="button" onClick={() => removeLot(lot.id)} title={"Eliminar lote " + (index + 1)} className={`button-press p-2 border border-l-0 rounded-r-lg ${lot.id === activeLotId ? "bg-keralty-blue text-white border-keralty-blue hover:bg-blue-900" : "bg-white text-red-500 border-slate-200 hover:bg-red-50"}`}>
+                                            <button type="button" onClick={() => setConfirmation({ type: "delete", lotId: lot.id })} title={"Eliminar lote " + (index + 1)} className={`button-press p-2 border border-l-0 rounded-r-lg ${lot.id === activeLotId ? "bg-keralty-blue text-white border-keralty-blue hover:bg-blue-900" : "bg-white text-red-500 border-slate-200 hover:bg-red-50"}`}>
                                                 <IconTrash size={16} />
                                             </button>
                                         )}
@@ -741,7 +810,7 @@
                             <div className="relative">
                                 <select value={activeLot ? activeLot.doctor : ""} onChange={(event) => updateDoctor(event.target.value)} disabled={activeChanges.length > 0} className="w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-500">
                                     <option value="">{isLoadingDoctors ? "Cargando médicos..." : "Selecciona un médico..."}</option>
-                                    {doctorsList.map((item, index) => <option key={index} value={item.name}>{item.name}</option>)}
+                                    <DoctorOptions doctorsList={doctorsList} />
                                 </select>
                                 <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                             </div>
@@ -799,11 +868,12 @@
 
                             <div className="mt-5 flex justify-end">
                                 <button type="button" onClick={addChange} className="button-press inline-flex items-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50">
-                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar fecha al lote
+                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar fecha al lote de {formatDoctorName(activeLot ? activeLot.doctor : "")}
                                 </button>
                             </div>
                         </div>
 
+                        {changes.length > 0 && (
                         <div className="border-t border-slate-200 pt-6">
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                 <div>
@@ -811,7 +881,7 @@
                                     <p className="text-sm text-slate-500">{lots.length} lote(s) · {changes.length} cambio(s)</p>
                                 </div>
                                 <button type="button" onClick={addNewLot} className="button-press inline-flex items-center justify-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50">
-                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar un nuevo lote
+                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar nuevo lote con otro médico
                                 </button>
                             </div>
 
@@ -827,7 +897,7 @@
                                                 <div className="px-4 py-3 bg-slate-100 border-b border-slate-200 flex items-center justify-between gap-3">
                                                     <div>
                                                         <p className="text-xs font-bold uppercase text-slate-500">Lote {lotIndex + 1}</p>
-                                                        <p className="text-sm font-semibold text-keralty-blue">{lot.doctor}</p>
+                                                        <p className="text-sm font-semibold text-keralty-blue">{formatDoctorName(lot.doctor)}</p>
                                                     </div>
                                                     <button type="button" onClick={() => selectLot(lot.id)} className="button-press text-xs font-medium text-keralty-blue hover:text-blue-900">Editar lote</button>
                                                 </div>
@@ -856,7 +926,32 @@
                                 </button>
                             </div>
                         </div>
+                        )}
                     </div>
+
+                    {confirmation && (
+                        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 text-center animate-fade-in">
+                                <div className="w-14 h-14 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <IconAlert size={28} />
+                                </div>
+                                <h3 className="text-lg font-bold text-slate-800 mb-2">
+                                    {confirmation.type === "delete" ? "¿Eliminar este lote?" : "¿Salir sin guardar?"}
+                                </h3>
+                                <p className="text-sm text-slate-500 mb-6">
+                                    {confirmation.type === "delete"
+                                        ? "¿Estás seguro de que deseas eliminar este lote? Los cambios incluidos se quitarán de la lista."
+                                        : "Los cambios no se han guardado. Si continúas, se perderán las selecciones y los lotes actuales."}
+                                </p>
+                                <div className="flex gap-3">
+                                    <button type="button" onClick={() => setConfirmation(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Mantener</button>
+                                    <button type="button" onClick={confirmPendingAction} className="button-press flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600">
+                                        {confirmation.type === "delete" ? "Sí, eliminar" : "Salir sin guardar"}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </section>
             );
         };
@@ -1168,6 +1263,12 @@
                 setBatchChanges(current => [...current, change].sort((first, second) => first.date.localeCompare(second.date)));
             };
 
+            const handleMultipleBack = () => {
+                setBatchChanges([]);
+                setBatchSessionKey(current => current + 1);
+                setActiveView("home");
+            };
+
             const handleBatchSubmit = async () => {
                 if (batchChanges.length === 0 || batchChanges.some(change => !change.person)) return;
                 setIsSubmitting(true);
@@ -1280,11 +1381,11 @@
                 </MotionView>
             ) : activeView === 'individual' ? (
                 <MotionView key="individual" enabled={motionEnabled} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.24 }}>
-                    <div className="mb-3">
-                        <button type="button" onClick={() => setActiveView('home')} className="button-press text-sm font-medium text-keralty-blue hover:text-blue-900">Volver a Nuevas Solicitudes</button>
-                    </div>
                         <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-visible">
-                            <div className="bg-keralty-blue px-6 py-4 flex items-center rounded-t-xl"><span className="text-keralty-green mr-2"><IconFileText /></span><h2 className="text-lg font-semibold text-white">Nuevas Solicitudes</h2></div>
+                            <div className="bg-keralty-blue px-6 py-4 flex items-center justify-between rounded-t-xl">
+                                <div className="flex items-center"><span className="text-keralty-green mr-2"><IconFileText /></span><h2 className="text-lg font-semibold text-white">Nuevas Solicitudes</h2></div>
+                                <button type="button" onClick={() => setActiveView('home')} className="text-sm text-white/90 hover:text-white font-medium">Volver</button>
+                            </div>
                             <div className="p-6 bg-slate-50 rounded-b-xl">
                                 {shifts.map((shift, idx) => <ShiftEntry key={shift.id} shift={shift} index={idx} updateShift={updateShift} removeShift={removeShift} doctorsList={doctorsList} isLoadingDoctors={isLoadingDoctors}/>)}
                                 <div className="mt-4 flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
@@ -1292,7 +1393,7 @@
                                     <div className="flex flex-col items-end w-full sm:w-auto">
                                         {validationError && <div className="text-red-500 text-sm font-bold mb-2 animate-bounce-short">{validationError}</div>}
                                         <button onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto flex items-center justify-center px-6 py-3 rounded-xl font-medium text-white bg-keralty-green hover:opacity-90 transition-opacity">
-                                            {isSubmitting ? <IconRefresh className="animate-spin mr-2" /> : <span className="mr-2"><IconSave /></span>} Guardar Solicitudes
+                                            {isSubmitting ? <IconRefresh className="animate-spin mr-2" /> : <span className="mr-2"><IconSave /></span>} Guardar y enviar
                                         </button>
                                     </div>
                                 </div>
@@ -1313,7 +1414,7 @@
                         onSubmit={handleBatchSubmit}
                         isSubmitting={isSubmitting}
                         motionEnabled={motionEnabled}
-                        onBack={() => setActiveView('home')}
+                        onBack={handleMultipleBack}
                         setToast={setToast}
                         resetKey={batchSessionKey}
                     />
