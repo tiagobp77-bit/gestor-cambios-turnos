@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://accounts.google.com" crossorigin>
     <title>TurnoSync - Gestión Cambios de Turno</title>
     
     <link rel="icon" type="image/png" href="./icon-192x192-3.png">
@@ -39,13 +41,65 @@
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
-    <style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; overflow-x: hidden; }</style>
+        <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; overflow-x: hidden; }
+        .button-press, button, [role="button"] { -webkit-tap-highlight-color: transparent; }
+        .button-press, button { transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease, color 160ms ease, border-color 160ms ease, opacity 160ms ease; }
+        .button-press:active, button:active { transform: scale(0.97); }
+        .action-card { position: relative; overflow: hidden; transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background-color 180ms ease; }
+        .action-card::after { content: ""; position: absolute; inset: 0; background: rgba(140, 198, 63, 0.08); opacity: 0; transition: opacity 180ms ease; pointer-events: none; }
+        .action-card:hover { transform: translateY(-3px); box-shadow: 0 14px 28px -15px rgba(0, 40, 85, 0.38); border-color: #8CC63F; }
+        .action-card:hover::after { opacity: 1; }
+        .loading-dots span { display: inline-block; width: 6px; height: 6px; margin: 0 2px; border-radius: 999px; background: #8CC63F; animation: loadingDot 1s infinite ease-in-out; }
+        .loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+        .loading-dots span:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes loadingDot { 0%, 80%, 100% { transform: scale(0.55); opacity: 0.45; } 40% { transform: scale(1); opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
+    </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
+
         const { useState, useEffect, useRef } = React;
+
+        const MotionView = ({ enabled, children, className = "", ...motionProps }) => {
+            const MotionDiv = enabled && window.Motion && window.Motion.motion ? window.Motion.motion.div : null;
+            return MotionDiv ? <MotionDiv className={className} {...motionProps}>{children}</MotionDiv> : <div className={className}>{children}</div>;
+        };
+
+        const isRoomNotRequiredForType = (shiftType) => (
+            shiftType.includes("Nocturnos") || shiftType.includes("Disponibilidad") || shiftType.includes("Extendido")
+        );
+
+        const getAllowedDayTypes = (shiftType) => {
+            if (!shiftType) return ['habil', 'sabado', 'domingo', 'festivo'];
+            if (shiftType.includes("Extendido Sabado")) return ['sabado'];
+            if (shiftType.includes("Extendido 1") || shiftType.includes("Extendido 2") || shiftType.includes("Extendido 3")) return ['habil'];
+            if (shiftType.includes("Disponibilidad U2")) return ['domingo', 'festivo'];
+            if (shiftType.includes("Disponibilidad AM") || shiftType.includes("Disponibilidad PM")) return ['habil'];
+            if (shiftType.includes("Fin de semana")) return ['sabado', 'domingo', 'festivo'];
+            if (shiftType.includes("Entre semana")) return ['habil'];
+            return ['habil', 'sabado', 'domingo', 'festivo'];
+        };
+
+        const getRoomRestriction = (room, date, doctorName, doctorsList) => {
+            if (!room || !date) return "";
+            const dayType = getDayType(date);
+            const isSundayOrHoliday = dayType === 'domingo' || dayType === 'festivo';
+            const doctor = doctorsList.find(item => item.name === doctorName) || {};
+            const group = (doctor.group || "").toLowerCase();
+
+            if (room === "Sala 7" && dayType !== 'sabado') return "Solo disponible los sábados.";
+            if (["P1", "P2", "P3", "P4", "P5", "P6", "P7", "U"].includes(room) && !isSundayOrHoliday) return "Solo disponible domingos y festivos.";
+            if (["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 8", "Sala 9"].includes(room) && isSundayOrHoliday) return "No disponible domingos ni festivos.";
+            if (room === "Sala Caderas" && !group.includes("caderas")) return "Solo para el grupo de Caderas.";
+            if (room === "Sala Sugarbaker" && !group.includes("sugarbaker")) return "Solo para el grupo de Sugarbaker.";
+            if (room === "Sala Microcirugía" && !group.includes("microcirug")) return "Solo para el grupo de Microcirugía.";
+            return "";
+        };
+
 
         // --- CONFIGURACIONES ---
         const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbygKJNFP05Ck8OcvfoBTHYzyvV0oNFQoONZMAu5ZlXuEYUcGgkUVAmepWtYSCgrcf0WCw/exec";
@@ -193,7 +247,7 @@
             );
         };
 
-        const CustomCalendar = ({ value, onChange, allowedTypes }) => {
+        const CustomCalendar = ({ value, onChange, allowedTypes, isDateAllowed }) => {
             const [isOpen, setIsOpen] = useState(false);
             const [viewDate, setViewDate] = useState(value ? new Date(value + 'T12:00:00') : new Date());
             const [showYearPicker, setShowYearPicker] = useState(false);
@@ -249,7 +303,7 @@
                                                 const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                                                 const dayType = getDayType(dateStr);
                                                 const isPast = dateStr < todayString;
-                                                const isAllowed = allowedTypes.includes(dayType) && !isPast;
+                                                const isAllowed = allowedTypes.includes(dayType) && !isPast && (!isDateAllowed || isDateAllowed(dateStr));
                                                 
                                                 let colorClasses = !isAllowed ? "bg-slate-50 text-slate-300 cursor-not-allowed opacity-40" : 
                                                     (dayType === 'festivo' ? "bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-200 border" : 
@@ -527,6 +581,169 @@
             );
         };
 
+
+
+        const DashboardChoices = ({ onChoose }) => (
+            <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-keralty-blue px-6 py-4 flex items-center">
+                    <span className="text-keralty-green mr-2"><IconFileText /></span>
+                    <h2 className="text-lg font-semibold text-white">Nuevas Solicitudes</h2>
+                </div>
+                <div className="p-6 bg-slate-50">
+                    <p className="text-sm text-slate-600 mb-5">Elige cómo quieres registrar tus cambios de turno.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <button type="button" onClick={() => onChoose('individual')} className="action-card text-left bg-white border border-slate-200 rounded-lg p-6 focus:outline-none focus:ring-2 focus:ring-keralty-blue">
+                            <span className="w-11 h-11 rounded-lg bg-blue-50 text-keralty-blue flex items-center justify-center mb-4"><IconFileText size={22} /></span>
+                            <h3 className="text-lg font-bold text-keralty-blue">Realizar Cambios Individuales</h3>
+                            <p className="mt-2 text-sm text-slate-500 leading-relaxed">Registra uno o varios cambios con el formato habitual.</p>
+                        </button>
+                        <button type="button" onClick={() => onChoose('multiple')} className="action-card text-left bg-white border border-slate-200 rounded-lg p-6 focus:outline-none focus:ring-2 focus:ring-keralty-green">
+                            <span className="w-11 h-11 rounded-lg bg-green-50 text-keralty-green flex items-center justify-center mb-4"><IconCalendar size={22} /></span>
+                            <h3 className="text-lg font-bold text-keralty-blue">Realizar Cambios Múltiples</h3>
+                            <p className="mt-2 text-sm text-slate-500 leading-relaxed">Asigna varias fechas a un mismo médico, definiendo sala y jornada en cada una.</p>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        );
+
+        const MultipleChangesForm = ({ doctorsList, isLoadingDoctors, changes, onAdd, onRemove, onSubmit, isSubmitting, motionEnabled, onBack, setToast }) => {
+            const [doctor, setDoctor] = useState("");
+            const [draft, setDraft] = useState({ date: "", type: "", room: "" });
+            const isRoomNotRequired = isRoomNotRequiredForType(draft.type);
+            const allowedDays = getAllowedDayTypes(draft.type);
+            const draftDayType = getDayType(draft.date);
+            const AnimatePresence = motionEnabled && window.Motion ? window.Motion.AnimatePresence : null;
+
+            useEffect(() => {
+                if (isRoomNotRequired && draft.room) setDraft(current => ({ ...current, room: "" }));
+            }, [isRoomNotRequired, draft.room]);
+
+            const addChange = () => {
+                if (!doctor) {
+                    setToast({ message: "Selecciona primero el médico para este lote.", type: "error" });
+                    return;
+                }
+                if (!draft.date || !draft.type || (!isRoomNotRequired && !draft.room)) {
+                    setToast({ message: "Completa fecha, jornada y sala para agregar el cambio.", type: "error" });
+                    return;
+                }
+                if (!allowedDays.includes(draftDayType)) {
+                    setToast({ message: "La jornada seleccionada no está disponible para esta fecha.", type: "error" });
+                    return;
+                }
+                const roomRestriction = !isRoomNotRequired ? getRoomRestriction(draft.room, draft.date, doctor, doctorsList) : "";
+                if (roomRestriction || (!isRoomNotRequired && !isRoomAvailableOnDate(draft.room, draft.date))) {
+                    setToast({ message: roomRestriction || "La sala no está disponible para la fecha seleccionada.", type: "error" });
+                    return;
+                }
+                if (changes.some(change => change.date === draft.date)) {
+                    setToast({ message: "Esta fecha ya está incluida en el lote.", type: "warning" });
+                    return;
+                }
+                onAdd({ id: Date.now().toString(), person: doctor, date: draft.date, type: draft.type, room: isRoomNotRequired ? "N/A" : draft.room });
+                setDraft({ date: "", type: "", room: "" });
+            };
+
+            const changeDoctor = (name) => {
+                setDoctor(name);
+                if (changes.length) setToast({ message: "El médico queda fijado para los cambios ya agregados. Elimina los cambios si necesitas cambiarlo.", type: "warning" });
+            };
+
+            return (
+                <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-visible">
+                    <div className="bg-keralty-blue px-6 py-4 flex items-center justify-between rounded-t-lg">
+                        <div className="flex items-center"><span className="text-keralty-green mr-2"><IconCalendar /></span><h2 className="text-lg font-semibold text-white">Cambios Múltiples</h2></div>
+                        <button type="button" onClick={onBack} className="text-sm text-white/90 hover:text-white font-medium">Volver</button>
+                    </div>
+                    <div className="p-6 bg-slate-50 space-y-6">
+                        <div className="max-w-xl">
+                            <label className="text-sm font-medium text-slate-700 block mb-2">1. Médico asignado para todo el lote</label>
+                            <div className="relative">
+                                <select value={doctor} onChange={(event) => changeDoctor(event.target.value)} disabled={changes.length > 0} className="w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-500">
+                                    <option value="">{isLoadingDoctors ? "Cargando médicos..." : "Selecciona un médico..."}</option>
+                                    {doctorsList.map((item, index) => <option key={index} value={item.name}>{item.name}</option>)}
+                                </select>
+                                <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
+                            </div>
+                            {changes.length > 0 && <p className="mt-2 text-xs text-slate-500">El médico queda fijado mientras existan cambios en el lote.</p>}
+                        </div>
+
+                        <div className="border-t border-slate-200 pt-6">
+                            <p className="text-sm font-medium text-slate-700 mb-4">2. Selecciona una fecha y define su información</p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-start">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconCalendar /></span> Fecha</label>
+                                    <CustomCalendar value={draft.date} onChange={(date) => setDraft(current => ({ ...current, date }))} allowedTypes={allowedDays} isDateAllowed={(date) => !changes.some(change => change.date === date)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconClock /></span> Tipo de Jornada</label>
+                                    <div className="relative">
+                                        <select value={draft.type} onChange={(event) => setDraft(current => ({ ...current, type: event.target.value, room: "" }))} className="w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700">
+                                            <option value="">Selecciona jornada...</option>
+                                            {Object.entries(SHIFT_TYPES).map(([category, types]) => <optgroup key={category} label={category}>{types.map(type => <option key={type} value={category + " - " + type}>{type}</option>)}</optgroup>)}
+                                        </select>
+                                        <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconLayout /></span> Sala</label>
+                                    <div className="relative">
+                                        <select value={draft.room} onChange={(event) => setDraft(current => ({ ...current, room: event.target.value }))} disabled={isRoomNotRequired || !draft.date} className="w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">
+                                            <option value="">{isRoomNotRequired ? "No aplica" : "Selecciona sala..."}</option>
+                                            {Object.entries(ROOMS_GROUPED).map(([groupName, rooms]) => (
+                                                <optgroup key={groupName} label={groupName}>
+                                                    {rooms.map(room => {
+                                                        const reason = getRoomRestriction(room, draft.date, doctor, doctorsList);
+                                                        return <option key={room} value={room} disabled={Boolean(reason)}>{room}{reason ? " (" + reason + ")" : ""}</option>;
+                                                    })}
+                                                </optgroup>
+                                            ))}
+                                        </select>
+                                        <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-5 flex justify-end">
+                                <button type="button" onClick={addChange} className="button-press inline-flex items-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50">
+                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar fecha al lote
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="border-t border-slate-200 pt-6">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-semibold text-keralty-blue">Verificación del lote</h3>
+                                <span className="text-sm text-slate-500">{changes.length} cambio(s)</span>
+                            </div>
+                            {changes.length === 0 ? (
+                                <div className="border border-dashed border-slate-300 rounded-lg p-5 text-sm text-slate-500 text-center bg-white">Agrega las fechas que deseas enviar para este médico.</div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {AnimatePresence ? <AnimatePresence initial={false}>{changes.map(change => (
+                                        <MotionView key={change.id} enabled={motionEnabled} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.2 }} className="bg-white border border-slate-200 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                            <p className="text-sm text-slate-700"><strong>{change.date}</strong><span className="text-slate-400 mx-2">-</span>{change.room}<span className="text-slate-400 mx-2">-</span>{change.type}</p>
+                                            <button type="button" onClick={() => onRemove(change.id)} className="button-press text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center"><IconTrash size={16} className="mr-1" /> Eliminar</button>
+                                        </MotionView>
+                                    ))}</AnimatePresence> : changes.map(change => (
+                                        <div key={change.id} className="bg-white border border-slate-200 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                            <p className="text-sm text-slate-700"><strong>{change.date}</strong><span className="text-slate-400 mx-2">-</span>{change.room}<span className="text-slate-400 mx-2">-</span>{change.type}</p>
+                                            <button type="button" onClick={() => onRemove(change.id)} className="button-press text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center"><IconTrash size={16} className="mr-1" /> Eliminar</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="mt-5 flex justify-end">
+                                <button type="button" onClick={() => onSubmit(doctor)} disabled={isSubmitting || changes.length === 0} className="button-press inline-flex items-center justify-center px-6 py-3 rounded-lg font-medium text-white bg-keralty-green hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed">
+                                    {isSubmitting ? <IconRefresh className="animate-spin mr-2" /> : <span className="mr-2"><IconSave /></span>} Guardar y Enviar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            );
+        };
+
         const App = () => {
             const [showSplash, setShowSplash] = useState(true);
             const [fadeSplash, setFadeSplash] = useState(false);
@@ -550,6 +767,11 @@
             const [selectedHistory, setSelectedHistory] = useState([]);
             const [showCancelModal, setShowCancelModal] = useState(false);
             const [isCancelling, setIsCancelling] = useState(false);
+            const [activeView, setActiveView] = useState('home');
+            const [batchChanges, setBatchChanges] = useState([]);
+            const [showHistory, setShowHistory] = useState(false);
+            const [historyLoaded, setHistoryLoaded] = useState(false);
+            const [motionEnabled, setMotionEnabled] = useState(false);
 
             const [doctorsList, setDoctorsList] = useState([]);
             const [isLoadingDoctors, setIsLoadingDoctors] = useState(true);
@@ -599,7 +821,25 @@
                 fetchDoctors();
             }, []);
 
-            // CARGAR HISTORIAL AL INICIAR SESIÓN
+            useEffect(() => {
+                if (!user || motionEnabled) return;
+                if (window.Motion && window.Motion.motion) {
+                    setMotionEnabled(true);
+                    return;
+                }
+                const existing = document.getElementById('turnosync-motion');
+                if (existing) return;
+                const script = document.createElement('script');
+                script.id = 'turnosync-motion';
+                script.src = 'https://cdn.jsdelivr.net/npm/framer-motion@11.11.17/dist/framer-motion.js';
+                script.async = true;
+                script.onload = () => {
+                    if (window.Motion && window.Motion.motion) setMotionEnabled(true);
+                };
+                document.body.appendChild(script);
+            }, [user, motionEnabled]);
+
+            // EL HISTORIAL SE CARGA SOLO CUANDO EL USUARIO LO SOLICITA
             useEffect(() => {
                 if (user) {
                     loadHistoryFromDB();
@@ -618,8 +858,18 @@
                 } catch (err) {
                     console.error("Error cargando historial", err);
                 } finally {
+                    setHistoryLoaded(true);
                     setIsLoadingHistory(false);
                 }
+            };
+
+            const handleHistoryToggle = () => {
+                if (showHistory) {
+                    setShowHistory(false);
+                    return;
+                }
+                setShowHistory(true);
+                if (!historyLoaded) loadHistoryFromDB();
             };
 
             const handleGoogleResponse = async (response) => {
@@ -764,12 +1014,56 @@
             };
 
             const handleLogout = () => { 
-                setUser(null); setShifts([{ id: '1', person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]); setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' }); setValidationError(""); setShowEmailLogin(false);
+                setUser(null); setShifts([{ id: '1', person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]); setBatchChanges([]); setActiveView('home'); setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' }); setValidationError(""); setShowEmailLogin(false);
                 if (window.google) window.google.accounts.id.disableAutoSelect();
             };
             const addShift = () => { setValidationError(""); setShifts(current => [...current, { id: Date.now().toString(), person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]); };
             const removeShift = (id) => { setValidationError(""); setShifts(current => current.filter(s => s.id !== id)); };
             const updateShift = (id, field, value) => { setValidationError(""); setShifts(current => current.map(s => s.id === id ? { ...s, [field]: value } : s)); };
+
+            const sendChangesToBackend = async (changes) => {
+                const payload = {
+                    solicitante: user.name,
+                    correoSolicitante: user.email,
+                    cambios: changes.map(shift => ({
+                        persona: shift.person,
+                        jornada: shift.type,
+                        fecha: shift.date,
+                        sala: isRoomNotRequiredForType(shift.type) ? "N/A" : shift.room,
+                        timestamp: new Date().toISOString()
+                    }))
+                };
+                await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            };
+
+            const refreshHistoryAfterWrite = () => {
+                setHistoryLoaded(false);
+                if (showHistory) refreshHistoryAfterWrite();
+            };
+
+            const handleBatchAdd = (change) => {
+                setBatchChanges(current => [...current, change].sort((first, second) => first.date.localeCompare(second.date)));
+            };
+
+            const handleBatchSubmit = async (doctor) => {
+                if (!doctor || batchChanges.length === 0) return;
+                setIsSubmitting(true);
+                try {
+                    await sendChangesToBackend(batchChanges);
+                    setToast({ message: batchChanges.length + " solicitud(es) guardada(s) correctamente.", type: "success" });
+                    setBatchChanges([]);
+                    refreshHistoryAfterWrite();
+                } catch (error) {
+                    setToast({ message: "Error al guardar los cambios múltiples.", type: "error" });
+                } finally {
+                    setIsSubmitting(false);
+                }
+            };
 
             const handleSubmit = async () => {
                 const individualShifts = shifts.flatMap(shift => {
@@ -802,21 +1096,10 @@
                 setValidationError("");
                 setIsSubmitting(true);
                 try {
-                    const payload = {
-                        solicitante: user.name,
-                        correoSolicitante: user.email,
-                        cambios: individualShifts.map(shift => ({
-                            persona: shift.person,
-                            jornada: shift.type,
-                            fecha: shift.date,
-                            sala: (shift.type.includes("Nocturnos") || shift.type.includes("Disponibilidad") || shift.type.includes("Extendido")) ? "N/A" : shift.room,
-                            timestamp: new Date().toISOString()
-                        }))
-                    };
-                    await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    await sendChangesToBackend(individualShifts);
                     setToast({ message: individualShifts.length + " solicitud(es) guardada(s) correctamente.", type: "success" });
                     setShifts([{ id: Date.now().toString(), person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]);
-                    setTimeout(() => loadHistoryFromDB(), 2000);
+                    refreshHistoryAfterWrite();
                 } catch (error) {
                     setToast({ message: "Error al guardar.", type: "error" });
                 } finally {
@@ -862,13 +1145,56 @@
                     setToast({ message: "Turno(s) cancelado(s) correctamente.", type: "success" });
                     setShowCancelModal(false);
                     setSelectedHistory([]);
-                    setTimeout(() => loadHistoryFromDB(), 2000);
+                    refreshHistoryAfterWrite();
                 } catch (error) {
                     setToast({ message: "Error al cancelar los turnos.", type: "error" });
                 } finally {
                     setIsCancelling(false);
                 }
             };
+
+
+            const AnimatePresence = motionEnabled && window.Motion ? window.Motion.AnimatePresence : null;
+            const requestView = activeView === 'home' ? (
+                <MotionView key="home" enabled={motionEnabled} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.24 }}>
+                    <DashboardChoices onChoose={setActiveView} />
+                </MotionView>
+            ) : activeView === 'individual' ? (
+                <MotionView key="individual" enabled={motionEnabled} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.24 }}>
+                        <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-visible">
+                            <div className="bg-keralty-blue px-6 py-4 flex items-center rounded-t-xl"><span className="text-keralty-green mr-2"><IconFileText /></span><h2 className="text-lg font-semibold text-white">Nuevas Solicitudes</h2></div>
+                            <div className="p-6 bg-slate-50 rounded-b-xl">
+                                {shifts.map((shift, idx) => <ShiftEntry key={shift.id} shift={shift} index={idx} updateShift={updateShift} removeShift={removeShift} doctorsList={doctorsList} isLoadingDoctors={isLoadingDoctors}/>)}
+                                <div className="mt-4 flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
+                                    <button onClick={addShift} className="flex items-center text-keralty-blue font-medium px-4 py-2 border border-dashed border-keralty-blue hover:bg-blue-50 rounded-lg justify-center transition-colors"><span className="mr-1"><IconPlus /></span> Agregar otro</button>
+                                    <div className="flex flex-col items-end w-full sm:w-auto">
+                                        {validationError && <div className="text-red-500 text-sm font-bold mb-2 animate-bounce-short">{validationError}</div>}
+                                        <button onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto flex items-center justify-center px-6 py-3 rounded-xl font-medium text-white bg-keralty-green hover:opacity-90 transition-opacity">
+                                            {isSubmitting ? <IconRefresh className="animate-spin mr-2" /> : <span className="mr-2"><IconSave /></span>} Guardar Solicitudes
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+
+                </MotionView>
+            ) : (
+                <MotionView key="multiple" enabled={motionEnabled} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.24 }}>
+                    <MultipleChangesForm
+                        doctorsList={doctorsList}
+                        isLoadingDoctors={isLoadingDoctors}
+                        changes={batchChanges}
+                        onAdd={handleBatchAdd}
+                        onRemove={(id) => setBatchChanges(current => current.filter(change => change.id !== id))}
+                        onSubmit={handleBatchSubmit}
+                        isSubmitting={isSubmitting}
+                        motionEnabled={motionEnabled}
+                        onBack={() => setActiveView('home')}
+                        setToast={setToast}
+                    />
+                </MotionView>
+            );
 
             // RENDERIZADO DEL SPLASH SCREEN
             if (showSplash) {
@@ -1016,27 +1342,8 @@
                                     </div>
                                     <div>
                                         <label className="text-sm font-medium text-slate-600 block mb-1">Nueva Contraseña</label>
-                                        <input required minLength="6" type="password" value={passwordData.new} onChange={e => setPasswordData({...passwordData, new: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" />
-                                    </div>
-                                    <div>
-                                        <label className="text-sm font-medium text-slate-600 block mb-1">Confirmar Nueva Contraseña</label>
-                                        <input required minLength="6" type="password" value={passwordData.confirm} onChange={e => setPasswordData({...passwordData, confirm: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue outline-none" />
-                                    </div>
-                                    <div className="pt-2 flex space-x-3">
-                                        <button type="button" onClick={() => setShowPasswordModal(false)} className="flex-1 py-2.5 rounded-lg font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">Cancelar</button>
-                                        <button type="submit" disabled={isSubmitting} className="flex-1 py-2.5 rounded-lg font-medium text-white bg-keralty-green hover:opacity-90 transition-opacity disabled:opacity-70 flex justify-center items-center">
-                                            {isSubmitting ? <IconRefresh className="animate-spin h-5 w-5" /> : "Guardar"}
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Modal Confirmación de Cancelar Turnos */}
-                    {showCancelModal && (
-                        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
-                            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-fade-in p-6 text-center">
+                                        <input required minLength="6" ty                        {AnimatePresence ? <AnimatePresence mode="wait">{requestView}</AnimatePresence> : requestView}
+="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-fade-in p-6 text-center">
                                 <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
                                     <IconAlert size={32} />
                                 </div>
@@ -1069,12 +1376,23 @@
                             </div>
                         </section>
 
+{activeView !== 'home' && (
                         <section>
-                            <div className="flex items-center justify-between mb-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                 <h3 className="text-lg font-bold text-keralty-blue flex items-center"><span className="text-keralty-green mr-2"><IconClock /></span> Registro de Cambios de Turnos</h3>
-                                {isLoadingHistory && <IconRefresh className="animate-spin text-slate-400" size={18} />}
+                                <button type="button" onClick={handleHistoryToggle} className="button-press inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-keralty-blue bg-white border border-slate-200 hover:bg-blue-50">
+                                    {showHistory ? "Ocultar Registro de Cambios" : "Mostrar Registro de Cambios"}
+                                </button>
                             </div>
                             
+                            {showHistory && (
+                                <MotionView enabled={motionEnabled} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
+                                    {isLoadingHistory ? (
+                                        <div className="bg-white shadow-sm rounded-xl border border-slate-200 p-8 text-center text-slate-600">
+                                            <div className="loading-dots mb-3"><span></span><span></span><span></span></div>
+                                            <p className="text-sm font-medium">Un momento, se están cargando tus cambios</p>
+                                        </div>
+                                    ) : (
                             <div className="bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden">
                                 {history.length === 0 ? (
                                     <div className="p-8 text-center text-slate-500">
@@ -1165,7 +1483,12 @@
                                     </div>
                                 )}
                             </div>
+                                    )}
+                                </MotionView>
+                            )}
                         </section>
+
+                        )}
                     </main>
                 </div>
             );
@@ -1176,3 +1499,4 @@
     </script>
 </body>
 </html>
+MultipleChangesForm
