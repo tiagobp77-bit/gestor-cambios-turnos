@@ -53,6 +53,8 @@
         .loading-dots span { display: inline-block; width: 6px; height: 6px; margin: 0 2px; border-radius: 999px; background: #8CC63F; animation: loadingDot 1s infinite ease-in-out; }
         .loading-dots span:nth-child(2) { animation-delay: 0.15s; }
         .loading-dots span:nth-child(3) { animation-delay: 0.3s; }
+        .draft-save-button { transition: background-color 220ms ease, border-color 220ms ease, color 220ms ease, box-shadow 220ms ease, transform 160ms ease; }
+        .draft-save-button-success { background-color: #dcfce7 !important; border-color: #8CC63F !important; color: #166534 !important; box-shadow: 0 0 0 3px rgba(140, 198, 63, 0.18); }
         @keyframes loadingDot { 0%, 80%, 100% { transform: scale(0.55); opacity: 0.45; } 40% { transform: scale(1); opacity: 1; } }
         @media (max-width: 640px) {
             body { font-size: 14px; }
@@ -108,8 +110,29 @@
 
 
         // --- CONFIGURACIONES ---
-        const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbygKJNFP05Ck8OcvfoBTHYzyvV0oNFQoONZMAu5ZlXuEYUcGgkUVAmepWtYSCgrcf0WCw/exec";
+        const BACKEND_URL = "/api/apps-script";
         const GOOGLE_CLIENT_ID = "984259317461-jdt2jq6fv654n8lkn6347f846e04s0hl.apps.googleusercontent.com";
+
+        const backendGet = async (params) => {
+            const query = params instanceof URLSearchParams ? params : new URLSearchParams(params);
+            const response = await fetch(BACKEND_URL + "?" + query.toString(), {
+                method: "GET",
+                headers: { "Accept": "application/json" },
+                cache: "no-store"
+            });
+            if (!response.ok) throw new Error("Backend no disponible");
+            return response.json();
+        };
+
+        const backendPost = async (payload) => {
+            const response = await fetch(BACKEND_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Accept": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error("Backend no disponible");
+            return response.json();
+        };
 
         const ALLOWED_EMAILS = ["admin@clinica.com", "tiagobp77@gmail.com", "NUEVO_CORREO@gmail.com"];
 
@@ -654,7 +677,7 @@
             </section>
         );
 
-        const MultipleChangesForm = ({ doctorsList, isLoadingDoctors, changes, onAdd, onRemove, onRemoveLot, onSubmit, onRestoreDraft, onDirtyChange, storageKey, isSubmitting, motionEnabled, onBack, setToast, resetKey }) => {
+        const MultipleChangesForm = ({ doctorsList, isLoadingDoctors, changes, onAdd, onRemove, onRemoveLot, onSubmit, onRestoreDraft, onDirtyChange, ownerEmail, ownerName, isSubmitting, motionEnabled, onBack, setToast, resetKey }) => {
             const createLot = () => ({ id: "lot-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7), doctor: "" });
             const initialLotRef = useRef(null);
             if (!initialLotRef.current) initialLotRef.current = createLot();
@@ -666,6 +689,9 @@
             const [confirmation, setConfirmation] = useState(null);
             const [highlightDoctor, setHighlightDoctor] = useState(false);
             const [draftRevision, setDraftRevision] = useState(0);
+            const [isLoadingDraft, setIsLoadingDraft] = useState(true);
+            const [isSavingDraft, setIsSavingDraft] = useState(false);
+            const [draftSavedPulse, setDraftSavedPulse] = useState(false);
             const formTopRef = useRef(null);
             const doctorSelectRef = useRef(null);
             const savedSnapshotRef = useRef("");
@@ -704,18 +730,37 @@
             const AnimatePresence = motionEnabled && window.Motion ? window.Motion.AnimatePresence : null;
 
             useEffect(() => {
-                if (!storageKey) {
-                    hydrationCompleteRef.current = true;
-                    return;
-                }
-                try {
-                    const storedDraft = window.localStorage.getItem(storageKey);
-                    if (storedDraft) {
-                        const parsed = JSON.parse(storedDraft);
-                        const restoredLots = Array.isArray(parsed.lots) && parsed.lots.length > 0 ? parsed.lots : [createLot()];
-                        const restoredChanges = Array.isArray(parsed.changes) ? parsed.changes : [];
-                        const restoredDraft = parsed.draft && typeof parsed.draft === "object" ? parsed.draft : { date: "", type: "", room: "" };
-                        const restoredActiveLotId = restoredLots.some(lot => lot.id === parsed.activeLotId) ? parsed.activeLotId : restoredLots[0].id;
+                let isActive = true;
+                hydrationCompleteRef.current = false;
+                setIsLoadingDraft(true);
+
+                const restoreDraft = async () => {
+                    if (!ownerEmail) return;
+                    try {
+                        const result = await backendGet({ action: "getDraft", email: ownerEmail });
+                        let restored = result.status === "success" ? result.data : null;
+
+                        // Migra una única vez los borradores creados por la versión anterior.
+                        if (!restored) {
+                            const legacyKey = getMultipleDraftStorageKey({ email: ownerEmail });
+                            const legacyValue = window.localStorage.getItem(legacyKey);
+                            if (legacyValue) {
+                                restored = JSON.parse(legacyValue);
+                                const migrationResult = await backendPost({
+                                    action: "saveDraft",
+                                    email: ownerEmail,
+                                    userName: ownerName || "",
+                                    draft: restored
+                                });
+                                if (migrationResult.status === "success") window.localStorage.removeItem(legacyKey);
+                            }
+                        }
+
+                        if (!isActive || !restored) return;
+                        const restoredLots = Array.isArray(restored.lots) && restored.lots.length > 0 ? restored.lots : [createLot()];
+                        const restoredChanges = Array.isArray(restored.changes) ? restored.changes : [];
+                        const restoredDraft = restored.draft && typeof restored.draft === "object" ? restored.draft : { date: "", type: "", room: "" };
+                        const restoredActiveLotId = restoredLots.some(lot => lot.id === restored.activeLotId) ? restored.activeLotId : restoredLots[0].id;
                         const normalized = { lots: restoredLots, activeLotId: restoredActiveLotId, draft: restoredDraft, changes: restoredChanges };
                         savedSnapshotRef.current = JSON.stringify(normalized);
                         setLots(restoredLots);
@@ -723,15 +768,20 @@
                         setDraft(restoredDraft);
                         onRestoreDraft(restoredChanges);
                         setToast({ message: "Tu borrador de cambios múltiples fue restaurado.", type: "success" });
+                    } catch (error) {
+                        if (isActive) setToast({ message: "No fue posible cargar el borrador guardado.", type: "warning" });
+                    } finally {
+                        if (isActive) {
+                            hydrationCompleteRef.current = true;
+                            setIsLoadingDraft(false);
+                            setDraftRevision(current => current + 1);
+                        }
                     }
-                } catch (error) {
-                    window.localStorage.removeItem(storageKey);
-                    setToast({ message: "No fue posible restaurar el borrador guardado.", type: "warning" });
-                } finally {
-                    hydrationCompleteRef.current = true;
-                    setDraftRevision(current => current + 1);
-                }
-            }, [storageKey]);
+                };
+
+                restoreDraft();
+                return () => { isActive = false; };
+            }, [ownerEmail]);
 
             useEffect(() => {
                 if (previousResetKeyRef.current === resetKey) return;
@@ -835,15 +885,31 @@
                 }
             };
 
-            const saveDraft = () => {
-                if (!storageKey || !hasDraftData) return;
+            const saveDraft = async () => {
+                if (!ownerEmail || !hasDraftData || isSavingDraft) return;
                 const payload = { lots, activeLotId, draft, changes };
                 const serialized = JSON.stringify(payload);
-                window.localStorage.setItem(storageKey, serialized);
-                savedSnapshotRef.current = serialized;
-                setDraftRevision(current => current + 1);
-                onDirtyChange(false);
-                setToast({ message: "Borrador guardado. Todavía no se ha enviado ningún cambio.", type: "success" });
+                setIsSavingDraft(true);
+                setDraftSavedPulse(false);
+                try {
+                    const result = await backendPost({
+                        action: "saveDraft",
+                        email: ownerEmail,
+                        userName: ownerName || "",
+                        draft: payload
+                    });
+                    if (result.status !== "success") throw new Error(result.message || "No se pudo guardar");
+                    savedSnapshotRef.current = serialized;
+                    setDraftRevision(current => current + 1);
+                    onDirtyChange(false);
+                    setDraftSavedPulse(true);
+                    window.setTimeout(() => setDraftSavedPulse(false), 1200);
+                    setToast({ message: "Se guardó sin enviar correctamente", type: "success" });
+                } catch (error) {
+                    setToast({ message: "No se pudo guardar el borrador. Inténtalo nuevamente.", type: "error" });
+                } finally {
+                    setIsSavingDraft(false);
+                }
             };
 
             const removeLot = (lotId) => {
@@ -885,6 +951,21 @@
                 }
                 resetAndLeave();
             };
+
+            if (isLoadingDraft) {
+                return (
+                    <section ref={formTopRef} className="multiple-changes-view bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="bg-keralty-blue px-6 py-4 flex items-center justify-between">
+                            <div className="flex items-center"><span className="text-keralty-green mr-2"><IconCalendar /></span><h2 className="text-lg font-semibold text-white">Cambios Múltiples</h2></div>
+                            <button type="button" onClick={onBack} className="text-sm text-white/90 hover:text-white font-medium">Volver</button>
+                        </div>
+                        <div className="p-10 text-center text-slate-600">
+                            <div className="loading-dots mb-3"><span></span><span></span><span></span></div>
+                            <p className="text-sm">Cargando tu borrador...</p>
+                        </div>
+                    </section>
+                );
+            }
 
             return (
                 <section ref={formTopRef} className="multiple-changes-view bg-white rounded-xl shadow-sm border border-slate-200 overflow-visible">
@@ -981,8 +1062,8 @@
 
                         <div className="border-t border-slate-200 pt-6 flex justify-end">
                             <div className="w-full sm:w-auto sm:max-w-md">
-                                <button type="button" onClick={saveDraft} disabled={!hasDraftData} className="button-press w-full inline-flex items-center justify-center px-5 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed">
-                                    <span className="mr-2"><IconSave size={18} /></span> Guardar sin enviar
+                                <button type="button" onClick={saveDraft} disabled={!hasDraftData || isSavingDraft} className={`draft-save-button button-press w-full inline-flex items-center justify-center px-5 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed ${draftSavedPulse ? "draft-save-button-success" : ""}`}>
+                                    {isSavingDraft ? <IconRefresh className="animate-spin mr-2" size={18} /> : <span className="mr-2"><IconSave size={18} /></span>} {isSavingDraft ? "Guardando..." : "Guardar sin enviar"}
                                 </button>
                                 <p className="mt-2 text-xs leading-relaxed text-slate-500">Guarda los cambios y lotes sin enviarlos todavía, por si necesitas añadir más cambios que aún están a la espera de confirmación</p>
                             </div>
@@ -1106,21 +1187,21 @@
             const [doctorsList, setDoctorsList] = useState([]);
             const [isLoadingDoctors, setIsLoadingDoctors] = useState(true);
             const [isPendingApproval, setIsPendingApproval] = useState(false);
-            const batchDraftStorageKey = getMultipleDraftStorageKey(user);
+            const doctorsLoadedRef = useRef(false);
             
             const parseJwt = (token) => { try { return JSON.parse(atob(token.split('.')[1])); } catch (e) { return null; } };
 
             // ANIMACIÓN DEL SPLASH SCREEN
             useEffect(() => {
-                const timer1 = setTimeout(() => setFadeSplash(true), 2000);
-                const timer2 = setTimeout(() => setShowSplash(false), 2500);
+                const timer1 = setTimeout(() => setFadeSplash(true), 650);
+                const timer2 = setTimeout(() => setShowSplash(false), 900);
                 return () => { clearTimeout(timer1); clearTimeout(timer2); };
             }, []);
 
             useEffect(() => {
                 // AQUI ESTÁ LA SOLUCIÓN DEL BOTÓN DE GOOGLE:
                 // Esperamos a que showSplash sea false para renderizar el botón
-                if (showSplash || user || authMode !== 'login' || isPendingApproval) return;
+                if (user || authMode !== 'login' || isPendingApproval) return;
                 
                 const initGoogleSignIn = () => {
                     if (window.google && document.getElementById("googleSignInDiv")) {
@@ -1137,20 +1218,24 @@
             }, [showSplash, user, authMode, isPendingApproval]); // Añadimos showSplash a las dependencias
 
             useEffect(() => {
-                const fetchDoctors = async () => {
+                if (!user || doctorsLoadedRef.current) return;
+                doctorsLoadedRef.current = true;
+                const timer = window.setTimeout(async () => {
                     setIsLoadingDoctors(true);
                     try {
-                        const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getDoctors`);
-                        const result = await response.json();
-                        if (result.status === 'success') setDoctorsList(result.data);
+                        const result = await backendGet({ action: "getDoctors" });
+                        if (result.status === "success") setDoctorsList(result.data);
                         else throw new Error(result.message);
                     } catch (error) {
+                        doctorsLoadedRef.current = false;
                         setDoctorsList(FALLBACK_DOCTORS);
                         setToast({ message: "No se pudo conectar a Sheets. Usando lista temporal.", type: "warning" });
-                    } finally { setIsLoadingDoctors(false); }
-                };
-                fetchDoctors();
-            }, []);
+                    } finally {
+                        setIsLoadingDoctors(false);
+                    }
+                }, 0);
+                return () => window.clearTimeout(timer);
+            }, [user]);
 
             useEffect(() => {
                 if (!user || motionEnabled) return;
@@ -1170,19 +1255,12 @@
                 document.body.appendChild(script);
             }, [user, motionEnabled]);
 
-            // EL HISTORIAL SE CARGA SOLO CUANDO EL USUARIO LO SOLICITA
-            useEffect(() => {
-                if (user) {
-                    loadHistoryFromDB();
-                }
-            }, [user]);
-
+            // El historial se solicita únicamente al abrir su sección.
             const loadHistoryFromDB = async () => {
                 if (!user) return;
                 setIsLoadingHistory(true);
                 try {
-                    const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getHistory&email=${encodeURIComponent(user.email)}`);
-                    const result = await response.json();
+                    const result = await backendGet({ action: "getHistory", email: user.email });
                     if (result.status === 'success') {
                         setHistory(result.data);
                     }
@@ -1214,8 +1292,7 @@
                             name: payload.name,
                             photoUrl: payload.picture || ""
                         });
-                        const res = await fetch(`${GOOGLE_SCRIPT_URL}?${params.toString()}`);
-                        const result = await res.json();
+                        const result = await backendGet(params);
 
                         if (result.status === 'success') {
                             setUser(result.user);
@@ -1245,8 +1322,7 @@
                         email: formData.email,
                         password: formData.password
                     });
-                    const response = await fetch(`${GOOGLE_SCRIPT_URL}?${params.toString()}`);
-                    const result = await response.json();
+                    const result = await backendGet(params);
 
                     if (result.status === 'success') {
                         setUser(result.user);
@@ -1267,8 +1343,7 @@
                 setIsLoggingIn(true);
                 try {
                     const params = new URLSearchParams({ action: 'resetPassword', email: formData.email });
-                    const response = await fetch(`${GOOGLE_SCRIPT_URL}?${params.toString()}`);
-                    const result = await response.json();
+                    const result = await backendGet(params);
 
                     if (result.status === 'success') {
                         setToast({ message: "Se ha enviado una nueva contraseña a tu correo.", type: "success" });
@@ -1299,8 +1374,7 @@
                         phone: formData.phone,
                         password: formData.password
                     });
-                    const response = await fetch(`${GOOGLE_SCRIPT_URL}?${params.toString()}`);
-                    const result = await response.json();
+                    const result = await backendGet(params);
 
                     if (result.status === 'success' || result.status === 'pending') {
                         setIsPendingApproval(true);
@@ -1327,8 +1401,7 @@
                         oldPassword: passwordData.old,
                         newPassword: passwordData.new
                     });
-                    const response = await fetch(`${GOOGLE_SCRIPT_URL}?${params.toString()}`);
-                    const result = await response.json();
+                    const result = await backendGet(params);
 
                     if (result.status === 'success') {
                         setToast({ message: "Contraseña actualizada exitosamente.", type: "success" });
@@ -1380,12 +1453,8 @@
                         timestamp: new Date().toISOString()
                     }))
                 };
-                await fetch(GOOGLE_SCRIPT_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                const result = await backendPost(payload);
+                if (result.status && result.status !== "success") throw new Error(result.message || "No se pudo guardar");
             };
 
             const refreshHistoryAfterWrite = () => {
@@ -1416,7 +1485,12 @@
                 try {
                     await sendChangesToBackend(batchChanges);
                     setToast({ message: batchChanges.length + " solicitud(es) guardada(s) correctamente.", type: "success" });
-                    if (batchDraftStorageKey) window.localStorage.removeItem(batchDraftStorageKey);
+                    try {
+                        await backendPost({ action: "deleteDraft", email: user.email });
+                    } catch (draftError) {
+                        console.warn("No se pudo limpiar el borrador remoto", draftError);
+                    }
+                    window.localStorage.removeItem(getMultipleDraftStorageKey(user));
                     setHasUnsavedMultipleChanges(false);
                     setBatchChanges([]);
                     setBatchSessionKey(current => current + 1);
@@ -1498,12 +1572,8 @@
                         shifts: shiftsToCancel
                     };
                     
-                    await fetch(GOOGLE_SCRIPT_URL, { 
-                        method: 'POST', 
-                        mode: 'no-cors', 
-                        headers: { 'Content-Type': 'application/json' }, 
-                        body: JSON.stringify(payload) 
-                    });
+                    const result = await backendPost(payload);
+                    if (result.status && result.status !== "success") throw new Error(result.message || "No se pudo cancelar");
                     
                     setToast({ message: "Turno(s) cancelado(s) correctamente.", type: "success" });
                     setShowCancelModal(false);
@@ -1557,7 +1627,8 @@
                         onSubmit={handleBatchSubmit}
                         onRestoreDraft={handleRestoreBatchDraft}
                         onDirtyChange={setHasUnsavedMultipleChanges}
-                        storageKey={batchDraftStorageKey}
+                        ownerEmail={user ? user.email : ""}
+                        ownerName={user ? user.name : ""}
                         isSubmitting={isSubmitting}
                         motionEnabled={motionEnabled}
                         onBack={handleMultipleBack}
