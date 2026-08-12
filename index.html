@@ -54,6 +54,12 @@
         .loading-dots span:nth-child(2) { animation-delay: 0.15s; }
         .loading-dots span:nth-child(3) { animation-delay: 0.3s; }
         @keyframes loadingDot { 0%, 80%, 100% { transform: scale(0.55); opacity: 0.45; } 40% { transform: scale(1); opacity: 1; } }
+        @media (max-width: 640px) {
+            body { font-size: 14px; }
+            .text-sm, select, input, textarea, button { font-size: 0.8125rem !important; }
+            .text-xs { font-size: 0.7rem !important; }
+            .text-lg { font-size: 1rem !important; }
+        }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
     </style>
 </head>
@@ -133,10 +139,14 @@
         ];
 
         const normalizeDoctorSchedule = (value) => String(value || "").trim().toUpperCase();
-        const formatDoctorName = (fullName) => {
-            const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
-            if (parts.length <= 2) return parts.join(" ");
-            return parts[0] + " " + parts[parts.length - 2];
+        const formatDoctorFirstName = (fullName) => {
+            const firstName = String(fullName || "").trim().split(/\s+/).filter(Boolean)[0] || "";
+            return firstName ? firstName.charAt(0).toLocaleUpperCase("es-CO") + firstName.slice(1).toLocaleLowerCase("es-CO") : "";
+        };
+
+        const getMultipleDraftStorageKey = (user) => {
+            const identity = user && (user.email || user.name);
+            return identity ? "turnosync:multiple-draft:" + String(identity).trim().toLocaleLowerCase("es-CO") : "";
         };
 
         const DoctorOptions = ({ doctorsList }) => {
@@ -149,13 +159,13 @@
                         if (doctors.length === 0) return null;
                         return (
                             <optgroup key={group.key} label={group.label}>
-                                {doctors.map(doctor => <option key={doctor.name} value={doctor.name}>{formatDoctorName(doctor.name)}</option>)}
+                                {doctors.map(doctor => <option key={doctor.name} value={doctor.name}>{doctor.name}</option>)}
                             </optgroup>
                         );
                     })}
                     {uncategorized.length > 0 && (
                         <optgroup label="Otros médicos">
-                            {uncategorized.map(doctor => <option key={doctor.name} value={doctor.name}>{formatDoctorName(doctor.name)}</option>)}
+                            {uncategorized.map(doctor => <option key={doctor.name} value={doctor.name}>{doctor.name}</option>)}
                         </optgroup>
                     )}
                 </React.Fragment>
@@ -644,7 +654,7 @@
             </section>
         );
 
-        const MultipleChangesForm = ({ doctorsList, isLoadingDoctors, changes, onAdd, onRemove, onRemoveLot, onSubmit, isSubmitting, motionEnabled, onBack, setToast, resetKey }) => {
+        const MultipleChangesForm = ({ doctorsList, isLoadingDoctors, changes, onAdd, onRemove, onRemoveLot, onSubmit, onRestoreDraft, onDirtyChange, storageKey, isSubmitting, motionEnabled, onBack, setToast, resetKey }) => {
             const createLot = () => ({ id: "lot-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7), doctor: "" });
             const initialLotRef = useRef(null);
             if (!initialLotRef.current) initialLotRef.current = createLot();
@@ -654,21 +664,92 @@
             const [draft, setDraft] = useState({ date: "", type: "", room: "" });
             const [showCalendarWarning, setShowCalendarWarning] = useState(false);
             const [confirmation, setConfirmation] = useState(null);
+            const [highlightDoctor, setHighlightDoctor] = useState(false);
+            const [draftRevision, setDraftRevision] = useState(0);
+            const formTopRef = useRef(null);
+            const doctorSelectRef = useRef(null);
+            const savedSnapshotRef = useRef("");
+            const hydrationCompleteRef = useRef(false);
+            const previousResetKeyRef = useRef(resetKey);
             const activeLot = lots.find(lot => lot.id === activeLotId) || lots[0];
             const activeChanges = changes.filter(change => change.lotId === activeLotId);
             const isRoomNotRequired = isRoomNotRequiredForType(draft.type);
             const allowedDays = getAllowedDayTypes(draft.type);
             const draftDayType = getDayType(draft.date);
+            const isDuplicateSchedule = activeChanges.some(change => change.date === draft.date && change.type === draft.type);
+            const isNightShift = (type) => String(type || "").includes("Nocturnos");
+            const isExtendedShift = (type) => String(type || "").includes("Extendidos");
+            const hasNightExtendedConflict = activeChanges.some(change => (
+                change.date === draft.date &&
+                ((isNightShift(change.type) && isExtendedShift(draft.type)) || (isExtendedShift(change.type) && isNightShift(draft.type)))
+            ));
+            const draftRoomRestriction = !isRoomNotRequired && draft.date && draft.room
+                ? getRoomRestriction(draft.room, draft.date, activeLot ? activeLot.doctor : "", doctorsList)
+                : "";
+            const hasDraftData = changes.length > 0 || lots.some(lot => lot.doctor) || Boolean(draft.date || draft.type || draft.room);
+            const isDraftReady = Boolean(
+                activeLot && activeLot.doctor &&
+                draft.type &&
+                draft.date &&
+                (isRoomNotRequired || draft.room) &&
+                allowedDays.includes(draftDayType) &&
+                !draftRoomRestriction &&
+                (isRoomNotRequired || isRoomAvailableOnDate(draft.room, draft.date)) &&
+                !isDuplicateSchedule &&
+                !hasNightExtendedConflict
+            );
+            const currentSnapshot = JSON.stringify({ lots, activeLotId, draft, changes });
+            const hasUnsavedData = hasDraftData && currentSnapshot !== savedSnapshotRef.current;
             const AnimatePresence = motionEnabled && window.Motion ? window.Motion.AnimatePresence : null;
 
             useEffect(() => {
+                if (!storageKey) {
+                    hydrationCompleteRef.current = true;
+                    return;
+                }
+                try {
+                    const storedDraft = window.localStorage.getItem(storageKey);
+                    if (storedDraft) {
+                        const parsed = JSON.parse(storedDraft);
+                        const restoredLots = Array.isArray(parsed.lots) && parsed.lots.length > 0 ? parsed.lots : [createLot()];
+                        const restoredChanges = Array.isArray(parsed.changes) ? parsed.changes : [];
+                        const restoredDraft = parsed.draft && typeof parsed.draft === "object" ? parsed.draft : { date: "", type: "", room: "" };
+                        const restoredActiveLotId = restoredLots.some(lot => lot.id === parsed.activeLotId) ? parsed.activeLotId : restoredLots[0].id;
+                        const normalized = { lots: restoredLots, activeLotId: restoredActiveLotId, draft: restoredDraft, changes: restoredChanges };
+                        savedSnapshotRef.current = JSON.stringify(normalized);
+                        setLots(restoredLots);
+                        setActiveLotId(restoredActiveLotId);
+                        setDraft(restoredDraft);
+                        onRestoreDraft(restoredChanges);
+                        setToast({ message: "Tu borrador de cambios múltiples fue restaurado.", type: "success" });
+                    }
+                } catch (error) {
+                    window.localStorage.removeItem(storageKey);
+                    setToast({ message: "No fue posible restaurar el borrador guardado.", type: "warning" });
+                } finally {
+                    hydrationCompleteRef.current = true;
+                    setDraftRevision(current => current + 1);
+                }
+            }, [storageKey]);
+
+            useEffect(() => {
+                if (previousResetKeyRef.current === resetKey) return;
+                previousResetKeyRef.current = resetKey;
                 const nextLot = createLot();
                 setLots([nextLot]);
                 setActiveLotId(nextLot.id);
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
                 setConfirmation(null);
+                savedSnapshotRef.current = "";
+                onDirtyChange(false);
             }, [resetKey]);
+
+            useEffect(() => {
+                if (hydrationCompleteRef.current) onDirtyChange(hasUnsavedData);
+            }, [hasUnsavedData, currentSnapshot, draftRevision]);
+
+            useEffect(() => () => onDirtyChange(false), []);
 
             useEffect(() => {
                 if (isRoomNotRequired && draft.room) setDraft(current => ({ ...current, room: "" }));
@@ -709,8 +790,12 @@
                     setToast({ message: roomRestriction || "La sala no está disponible para la fecha seleccionada.", type: "error" });
                     return;
                 }
-                if (activeChanges.some(change => change.date === draft.date)) {
-                    setToast({ message: "Esta fecha ya está incluida en este lote.", type: "warning" });
+                if (isDuplicateSchedule) {
+                    setToast({ message: "Esta fecha ya tiene exactamente el mismo tipo de jornada en este lote.", type: "warning" });
+                    return;
+                }
+                if (hasNightExtendedConflict) {
+                    setToast({ message: "No puedes combinar Noche y Extendido en la misma fecha porque sus horarios se cruzan.", type: "error" });
                     return;
                 }
 
@@ -736,6 +821,28 @@
                 setActiveLotId(nextLot.id);
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
+
+                if (window.matchMedia && window.matchMedia("(max-width: 767px)").matches) {
+                    setHighlightDoctor(true);
+                    window.setTimeout(() => {
+                        if (formTopRef.current) formTopRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+                        window.setTimeout(() => {
+                            if (doctorSelectRef.current) doctorSelectRef.current.focus({ preventScroll: true });
+                        }, 350);
+                    }, 50);
+                    window.setTimeout(() => setHighlightDoctor(false), 2200);
+                }
+            };
+
+            const saveDraft = () => {
+                if (!storageKey || !hasDraftData) return;
+                const payload = { lots, activeLotId, draft, changes };
+                const serialized = JSON.stringify(payload);
+                window.localStorage.setItem(storageKey, serialized);
+                savedSnapshotRef.current = serialized;
+                setDraftRevision(current => current + 1);
+                onDirtyChange(false);
+                setToast({ message: "Borrador guardado. Todavía no se ha enviado ningún cambio.", type: "success" });
             };
 
             const removeLot = (lotId) => {
@@ -749,8 +856,6 @@
                     setShowCalendarWarning(false);
                 }
             };
-
-            const hasUnsavedData = changes.length > 0 || lots.some(lot => lot.doctor) || Boolean(draft.date || draft.type || draft.room);
 
             const resetAndLeave = () => {
                 const nextLot = createLot();
@@ -781,7 +886,7 @@
             };
 
             return (
-                <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-visible">
+                <section ref={formTopRef} className="multiple-changes-view bg-white rounded-xl shadow-sm border border-slate-200 overflow-visible">
                     <div className="bg-keralty-blue px-6 py-4 flex items-center justify-between rounded-t-lg">
                         <div className="flex items-center"><span className="text-keralty-green mr-2"><IconCalendar /></span><h2 className="text-lg font-semibold text-white">Cambios Múltiples</h2></div>
                         <button type="button" onClick={requestBack} className="text-sm text-white/90 hover:text-white font-medium">Volver</button>
@@ -793,7 +898,7 @@
                                 {lots.map((lot, index) => (
                                     <div key={lot.id} className="inline-flex items-center">
                                         <button type="button" onClick={() => selectLot(lot.id)} className={`button-press px-3 py-2 text-sm font-medium border rounded-l-lg ${lot.id === activeLotId ? "bg-keralty-blue text-white border-keralty-blue" : "bg-white text-slate-600 border-slate-200 hover:bg-blue-50"}`}>
-                                            Lote {index + 1}{lot.doctor ? " · " + formatDoctorName(lot.doctor) : ""}
+                                            Lote {index + 1}{lot.doctor ? " · " + formatDoctorFirstName(lot.doctor) : ""}
                                         </button>
                                         {lots.length > 1 && (
                                             <button type="button" onClick={() => setConfirmation({ type: "delete", lotId: lot.id })} title={"Eliminar lote " + (index + 1)} className={`button-press p-2 border border-l-0 rounded-r-lg ${lot.id === activeLotId ? "bg-keralty-blue text-white border-keralty-blue hover:bg-blue-900" : "bg-white text-red-500 border-slate-200 hover:bg-red-50"}`}>
@@ -808,7 +913,7 @@
                         <div className="max-w-xl">
                             <label className="text-sm font-medium text-slate-700 block mb-2">1. Médico asignado para este lote</label>
                             <div className="relative">
-                                <select value={activeLot ? activeLot.doctor : ""} onChange={(event) => updateDoctor(event.target.value)} disabled={activeChanges.length > 0} className="w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-500">
+                                <select ref={doctorSelectRef} value={activeLot ? activeLot.doctor : ""} onChange={(event) => updateDoctor(event.target.value)} disabled={activeChanges.length > 0} className={`w-full pl-3 pr-10 py-2.5 bg-white border rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-500 transition-shadow ${highlightDoctor ? "border-blue-400 ring-4 ring-blue-200" : "border-slate-200"}`}>
                                     <option value="">{isLoadingDoctors ? "Cargando médicos..." : "Selecciona un médico..."}</option>
                                     <DoctorOptions doctorsList={doctorsList} />
                                 </select>
@@ -837,7 +942,7 @@
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconCalendar /></span> Fecha</label>
                                     {draft.type ? (
-                                        <CustomCalendar value={draft.date} onChange={(date) => setDraft(current => ({ ...current, date, room: "" }))} allowedTypes={allowedDays} isDateAllowed={(date) => !activeChanges.some(change => change.date === date)} />
+                                        <CustomCalendar value={draft.date} onChange={(date) => setDraft(current => ({ ...current, date, room: "" }))} allowedTypes={allowedDays} isDateAllowed={(date) => !activeChanges.some(change => change.date === date && change.type === draft.type)} />
                                     ) : (
                                         <button type="button" onClick={() => setShowCalendarWarning(true)} className="button-press w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-lg flex justify-between items-center text-left text-slate-400">
                                             <span>Seleccionar fecha...</span>
@@ -867,9 +972,18 @@
                             </div>
 
                             <div className="mt-5 flex justify-end">
-                                <button type="button" onClick={addChange} className="button-press inline-flex items-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50">
-                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar fecha al lote de {formatDoctorName(activeLot ? activeLot.doctor : "")}
+                                <button type="button" onClick={addChange} className={`button-press inline-flex items-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue border transition-colors ${isDraftReady ? "bg-blue-100 border-blue-300 hover:bg-blue-200" : "bg-white border-keralty-blue hover:bg-blue-50"}`}>
+                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar fecha al lote de {formatDoctorFirstName(activeLot ? activeLot.doctor : "")}
                                 </button>
+                            </div>
+                        </div>
+
+                        <div className="border-t border-slate-200 pt-6 flex justify-end">
+                            <div className="w-full sm:w-auto sm:max-w-md">
+                                <button type="button" onClick={saveDraft} disabled={!hasDraftData} className="button-press w-full inline-flex items-center justify-center px-5 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <span className="mr-2"><IconSave size={18} /></span> Guardar sin enviar
+                                </button>
+                                <p className="mt-2 text-xs leading-relaxed text-slate-500">Guarda los cambios y lotes sin enviarlos todavía, por si necesitas añadir más cambios que aún están a la espera de confirmación</p>
                             </div>
                         </div>
 
@@ -897,7 +1011,7 @@
                                                 <div className="px-4 py-3 bg-slate-100 border-b border-slate-200 flex items-center justify-between gap-3">
                                                     <div>
                                                         <p className="text-xs font-bold uppercase text-slate-500">Lote {lotIndex + 1}</p>
-                                                        <p className="text-sm font-semibold text-keralty-blue">{formatDoctorName(lot.doctor)}</p>
+                                                        <p className="text-sm font-semibold text-keralty-blue">{formatDoctorFirstName(lot.doctor)}</p>
                                                     </div>
                                                     <button type="button" onClick={() => selectLot(lot.id)} className="button-press text-xs font-medium text-keralty-blue hover:text-blue-900">Editar lote</button>
                                                 </div>
@@ -978,6 +1092,8 @@
             const [isLoadingHistory, setIsLoadingHistory] = useState(false);
             const [selectedHistory, setSelectedHistory] = useState([]);
             const [showCancelModal, setShowCancelModal] = useState(false);
+            const [showLogoutWarning, setShowLogoutWarning] = useState(false);
+            const [hasUnsavedMultipleChanges, setHasUnsavedMultipleChanges] = useState(false);
             const [isCancelling, setIsCancelling] = useState(false);
             const [activeView, setActiveView] = useState('home');
             const [batchChanges, setBatchChanges] = useState([]);
@@ -989,6 +1105,7 @@
             const [doctorsList, setDoctorsList] = useState([]);
             const [isLoadingDoctors, setIsLoadingDoctors] = useState(true);
             const [isPendingApproval, setIsPendingApproval] = useState(false);
+            const batchDraftStorageKey = getMultipleDraftStorageKey(user);
             
             const parseJwt = (token) => { try { return JSON.parse(atob(token.split('.')[1])); } catch (e) { return null; } };
 
@@ -1226,9 +1343,25 @@
                 }
             };
 
-            const handleLogout = () => { 
-                setUser(null); setShifts([{ id: '1', person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]); setBatchChanges([]); setActiveView('home'); setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' }); setValidationError(""); setShowEmailLogin(false);
+            const completeLogout = () => {
+                setShowLogoutWarning(false);
+                setHasUnsavedMultipleChanges(false);
+                setUser(null);
+                setShifts([{ id: '1', person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]);
+                setBatchChanges([]);
+                setActiveView('home');
+                setFormData({ name: '', email: '', phone: '', password: '', confirmPassword: '' });
+                setValidationError("");
+                setShowEmailLogin(false);
                 if (window.google) window.google.accounts.id.disableAutoSelect();
+            };
+
+            const handleLogout = () => {
+                if (hasUnsavedMultipleChanges) {
+                    setShowLogoutWarning(true);
+                    return;
+                }
+                completeLogout();
             };
             const addShift = () => { setValidationError(""); setShifts(current => [...current, { id: Date.now().toString(), person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]); };
             const removeShift = (id) => { setValidationError(""); setShifts(current => current.filter(s => s.id !== id)); };
@@ -1264,9 +1397,16 @@
             };
 
             const handleMultipleBack = () => {
+                setHasUnsavedMultipleChanges(false);
                 setBatchChanges([]);
                 setBatchSessionKey(current => current + 1);
                 setActiveView("home");
+            };
+
+            const handleRestoreBatchDraft = (restoredChanges) => {
+                setBatchChanges(
+                    restoredChanges.slice().sort((first, second) => first.date.localeCompare(second.date))
+                );
             };
 
             const handleBatchSubmit = async () => {
@@ -1275,6 +1415,8 @@
                 try {
                     await sendChangesToBackend(batchChanges);
                     setToast({ message: batchChanges.length + " solicitud(es) guardada(s) correctamente.", type: "success" });
+                    if (batchDraftStorageKey) window.localStorage.removeItem(batchDraftStorageKey);
+                    setHasUnsavedMultipleChanges(false);
                     setBatchChanges([]);
                     setBatchSessionKey(current => current + 1);
                     refreshHistoryAfterWrite();
@@ -1412,6 +1554,9 @@
                         onRemove={(id) => setBatchChanges(current => current.filter(change => change.id !== id))}
                         onRemoveLot={(lotId) => setBatchChanges(current => current.filter(change => change.lotId !== lotId))}
                         onSubmit={handleBatchSubmit}
+                        onRestoreDraft={handleRestoreBatchDraft}
+                        onDirtyChange={setHasUnsavedMultipleChanges}
+                        storageKey={batchDraftStorageKey}
                         isSubmitting={isSubmitting}
                         motionEnabled={motionEnabled}
                         onBack={handleMultipleBack}
@@ -1580,6 +1725,23 @@
                                         </button>
                                     </div>
                                 </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Advertencia antes de cerrar sesión con cambios múltiples sin guardar */}
+                    {showLogoutWarning && (
+                        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 text-center animate-fade-in">
+                                <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <IconAlert size={28} />
+                                </div>
+                                <h3 className="text-lg font-bold text-slate-800 mb-2">¿Cerrar sesión sin guardar?</h3>
+                                <p className="text-sm text-slate-500 mb-6">Tienes cambios múltiples o lotes que no se han guardado. Si cierras sesión ahora, esas modificaciones se perderán.</p>
+                                <div className="flex gap-3">
+                                    <button type="button" onClick={() => setShowLogoutWarning(false)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Seguir editando</button>
+                                    <button type="button" onClick={completeLogout} className="button-press flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600">Cerrar sin guardar</button>
+                                </div>
                             </div>
                         </div>
                     )}
