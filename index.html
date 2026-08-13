@@ -60,6 +60,11 @@
         .group-status { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.7rem; line-height: 1.1; }
         .transfer-indicator { position: absolute; right: 1.25rem; bottom: -0.75rem; z-index: 5; width: 2.35rem; height: 2.35rem; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: #8CC63F; color: white; box-shadow: 0 8px 18px rgba(0, 40, 85, 0.22); pointer-events: none; animation: transferToVerification 680ms ease-out forwards; }
         @keyframes transferToVerification { 0% { opacity: 0; transform: translateY(-22px) scale(0.78); } 35% { opacity: 1; } 100% { opacity: 0; transform: translateY(62px) scale(1.05); } }
+        .field-error { border-color: #ef4444 !important; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.13) !important; }
+        .field-error-shake { animation: fieldErrorShake 420ms ease-in-out; }
+        .save-ready { background-color: #16a34a !important; color: #ffffff !important; box-shadow: 0 8px 18px -10px rgba(22, 163, 74, 0.75); }
+        .save-incomplete { background-color: #94a3b8 !important; color: #ffffff !important; opacity: 0.68; }
+        @keyframes fieldErrorShake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
         @keyframes loadingDot { 0%, 80%, 100% { transform: scale(0.55); opacity: 0.45; } 40% { transform: scale(1); opacity: 1; } }
         @media (max-width: 640px) {
             body { font-size: 14px; }
@@ -221,6 +226,36 @@
                 if (previous) return { candidate: changes[index], previous };
             }
             return null;
+        };
+
+        const getBogotaTodayString = () => {
+            const parts = new Intl.DateTimeFormat("en-CA", {
+                timeZone: "America/Bogota",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit"
+            }).formatToParts(new Date());
+            const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+            return values.year + "-" + values.month + "-" + values.day;
+        };
+
+        const getShiftFieldErrors = (shift) => {
+            const errors = {};
+            if (!shift.person) errors.person = "Debes seleccionar el médico primero";
+            if (!shift.type) errors.type = "Debes seleccionar el tipo de jornada";
+            if (!shift.date) errors.date = "Debes seleccionar la fecha";
+            if (shift.type && !isRoomNotRequiredForType(shift.type) && !shift.room) errors.room = "Debes seleccionar la sala";
+            if (shift.repeatToOtherDates && (!shift.additionalDates || shift.additionalDates.length === 0)) errors.additionalDates = "Debes seleccionar al menos una fecha adicional";
+            return errors;
+        };
+
+        const getMultipleFieldErrors = (lot, draft) => {
+            const errors = {};
+            if (!lot || !lot.doctor) errors.person = "Debes seleccionar el médico primero";
+            if (!draft.type) errors.type = "Debes seleccionar el tipo de jornada";
+            if (!draft.date) errors.date = "Debes seleccionar la fecha";
+            if (draft.type && !isRoomNotRequiredForType(draft.type) && !draft.room) errors.room = "Debes seleccionar la sala";
+            return errors;
         };
 
         const getMultipleDraftStorageKey = (user) => {
@@ -559,47 +594,18 @@
             return <div className={`fixed bottom-4 right-4 ${bgColor} text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-bounce-short z-50`}><Icon /><span className="font-medium">{message}</span></div>;
         };
 
-        const ShiftEntry = ({ shift, index, updateShift, removeShift, doctorsList, isLoadingDoctors }) => {
-            const isRoomNotRequired = shift.type.includes("Nocturnos") || shift.type.includes("Disponibilidad") || shift.type.includes("Extendido");
+        const ShiftEntry = ({ shift, index, updateShift, removeShift, doctorsList, isLoadingDoctors, errors = {}, validationCycle }) => {
+            const isRoomNotRequired = isRoomNotRequiredForType(shift.type);
             const currentDayType = getDayType(shift.date);
-            const isSaturday = currentDayType === 'sabado';
-
-            const getAllowedDayTypes = (shiftType) => {
-                if (!shiftType) return ['habil', 'sabado', 'domingo', 'festivo'];
-                if (shiftType.includes("Extendido Sabado")) return ['sabado'];
-                if (shiftType.includes("Extendido 1") || shiftType.includes("Extendido 2") || shiftType.includes("Extendido 3")) return ['habil'];
-                if (shiftType.includes("Disponibilidad U2")) return ['domingo', 'festivo'];
-                if (shiftType.includes("Disponibilidad AM") || shiftType.includes("Disponibilidad PM")) return ['habil'];
-                if (shiftType.includes("Fin de semana")) return ['sabado', 'domingo', 'festivo'];
-                if (shiftType.includes("Entre semana")) return ['habil'];
-                return ['habil', 'sabado', 'domingo', 'festivo'];
-            };
             const allowedDays = getAllowedDayTypes(shift.type);
             const additionalDates = shift.additionalDates || [];
-            const additionalDatesKey = additionalDates.join('|');
+            const additionalDatesKey = additionalDates.join("|");
+            const errorClass = (field) => errors[field] ? "field-error field-error-shake" : "";
 
             useEffect(() => {
-                if (isRoomNotRequired && shift.room !== "") updateShift(shift.id, 'room', "");
-                if (shift.date && !allowedDays.includes(currentDayType)) updateShift(shift.id, 'date', "");
-                if (shift.room === "Sala 7" && !isSaturday) updateShift(shift.id, 'room', "");
-                
-                const isRestrictedRoomSelected = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "U"].includes(shift.room);
-                if (isRestrictedRoomSelected && currentDayType && currentDayType !== 'domingo' && currentDayType !== 'festivo') updateShift(shift.id, 'room', "");
-                
-                const isStandardRoomSelected = ["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 8", "Sala 9"].includes(shift.room);
-                if (isStandardRoomSelected && currentDayType && (currentDayType === 'domingo' || currentDayType === 'festivo')) updateShift(shift.id, 'room', "");
-
-                // Validar bloqueo retroactivo de salas de excelencia si el usuario cambia el médico
-                const selectedDoc = doctorsList.find(d => d.name === shift.person) || {};
-                const docGroup = (selectedDoc.group || "").toLowerCase();
-                
-                const isCaderasRoom = shift.room === "Sala Caderas";
-                const isSugarbakerRoom = shift.room === "Sala Sugarbaker";
-                const isMicrocirugiaRoom = shift.room === "Sala Microcirugía";
-                
-                if (isCaderasRoom && !docGroup.includes("caderas")) updateShift(shift.id, 'room', "");
-                if (isSugarbakerRoom && !docGroup.includes("sugarbaker")) updateShift(shift.id, 'room', "");
-                if (isMicrocirugiaRoom && !docGroup.includes("microcirug")) updateShift(shift.id, 'room', "");
+                if (isRoomNotRequired && shift.room !== "") updateShift(shift.id, "room", "");
+                if (shift.date && !allowedDays.includes(currentDayType)) updateShift(shift.id, "date", "");
+                if (shift.room && getRoomRestriction(shift.room, shift.date, shift.person, doctorsList)) updateShift(shift.id, "room", "");
             }, [shift.type, shift.date, shift.person, isRoomNotRequired, currentDayType]);
 
             useEffect(() => {
@@ -608,97 +614,89 @@
                     allowedDays.includes(getDayType(date)) &&
                     (isRoomNotRequired || !shift.room || isRoomAvailableOnDate(shift.room, date))
                 ));
-
-                if (validAdditionalDates.length !== additionalDates.length) {
-                    updateShift(shift.id, 'additionalDates', validAdditionalDates);
-                }
+                if (validAdditionalDates.length !== additionalDates.length) updateShift(shift.id, "additionalDates", validAdditionalDates);
             }, [shift.date, shift.type, shift.room, isRoomNotRequired, additionalDatesKey]);
 
             return (
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 mb-4 transition-all hover:shadow-md">
                     <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-50">
                         <h4 className="font-semibold text-keralty-blue flex items-center"><span className="text-keralty-green mr-2"><IconActivity /></span>Cambio de Turno #{index + 1}</h4>
-                        {index > 0 && <button onClick={() => removeShift(shift.id)} className="text-red-400 hover:text-red-600 p-1 rounded-full hover:bg-red-50 transition-colors"><IconTrash /></button>}
+                        {index > 0 && <button type="button" onClick={() => removeShift(shift.id)} className="text-red-400 hover:text-red-600 p-1 rounded-full hover:bg-red-50 transition-colors"><IconTrash /></button>}
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconUser /></span> Persona Asignada</label>
                             <div className="relative">
-                                <select value={shift.person} onChange={(e) => updateShift(shift.id, 'person', e.target.value)} className="w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700">
+                                <select key={"person-" + validationCycle} value={shift.person} onChange={(event) => updateShift(shift.id, "person", event.target.value)} className={`w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 ${errorClass("person")}`}>
                                     <option value="">{isLoadingDoctors ? "Cargando..." : "Seleccione..."}</option>
                                     <DoctorOptions doctorsList={doctorsList} />
                                 </select>
                                 <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                             </div>
+                            {errors.person && <p className="text-xs font-semibold text-red-600">{errors.person}</p>}
                         </div>
+
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconClock /></span> Tipo de Jornada</label>
                             <div className="relative">
-                                <select value={shift.type} onChange={(e) => updateShift(shift.id, 'type', e.target.value)} className="w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700">
+                                <select key={"type-" + validationCycle} value={shift.type} onChange={(event) => updateShift(shift.id, "type", event.target.value)} className={`w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 ${errorClass("type")}`}>
                                     <option value="">Seleccione jornada...</option>
-                                    {Object.entries(SHIFT_TYPES).map(([cat, types]) => <optgroup key={cat} label={cat}>{types.map(t => <option key={t} value={`${cat} - ${t}`}>{t}</option>)}</optgroup>)}
+                                    {Object.entries(SHIFT_TYPES).map(([category, types]) => <optgroup key={category} label={category}>{types.map(type => <option key={type} value={category + " - " + type}>{type}</option>)}</optgroup>)}
                                 </select>
                                 <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                             </div>
+                            {errors.type && <p className="text-xs font-semibold text-red-600">{errors.type}</p>}
                         </div>
+
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconCalendar /></span> Fecha del Turno</label>
-                            <CustomCalendar value={shift.date} onChange={(date) => updateShift(shift.id, 'date', date)} allowedTypes={allowedDays} />
+                            <div key={"date-" + validationCycle} className={`rounded-lg ${errorClass("date")}`}>
+                                <CustomCalendar value={shift.date} onChange={(date) => updateShift(shift.id, "date", date)} allowedTypes={allowedDays} />
+                            </div>
+                            {errors.date && <p className="text-xs font-semibold text-red-600">{errors.date}</p>}
                         </div>
+
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconLayout /></span> Sala Asignada</label>
                             <div className="relative">
-                                <select value={shift.room} onChange={(e) => updateShift(shift.id, 'room', e.target.value)} disabled={isRoomNotRequired} className={`w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 ${isRoomNotRequired ? 'opacity-50 cursor-not-allowed bg-slate-200' : ''}`}>
+                                <select key={"room-" + validationCycle} value={shift.room} onChange={(event) => updateShift(shift.id, "room", event.target.value)} disabled={isRoomNotRequired} className={`w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 ${isRoomNotRequired ? "opacity-50 cursor-not-allowed bg-slate-200" : ""} ${errorClass("room")}`}>
                                     <option value="">{isRoomNotRequired ? "No aplica" : "Seleccione sala..."}</option>
                                     {Object.entries(ROOMS_GROUPED).map(([groupName, rooms]) => (
                                         <optgroup key={groupName} label={groupName}>
-                                            {rooms.map((room, i) => {
-                                                const isSala7 = room === "Sala 7";
-                                                const isSundayOrHoliday = currentDayType === 'domingo' || currentDayType === 'festivo';
-                                                const isRestrictedRoom = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "U"].includes(room);
-                                                const isStandardRoom = ["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 8", "Sala 9"].includes(room);
-                                                
-                                                const selectedDoc = doctorsList.find(d => d.name === shift.person) || {};
-                                                const docGroup = (selectedDoc.group || "").toLowerCase();
-                                                
-                                                const isCaderasRoom = room === "Sala Caderas";
-                                                const isSugarbakerRoom = room === "Sala Sugarbaker";
-                                                const isMicrocirugiaRoom = room === "Sala Microcirugía";
-                                                
-                                                let isDisabled = false; let disabledReason = "";
-                                                if (isSala7 && !isSaturday) { isDisabled = true; disabledReason = "(Solo Sábados)"; }
-                                                else if (isStandardRoom && isSundayOrHoliday) { isDisabled = true; disabledReason = "(No disp. Dom/Fest)"; }
-                                                else if (isRestrictedRoom && !isSundayOrHoliday) { isDisabled = true; disabledReason = "(Solo Dom/Fest)"; }
-                                                else if (isCaderasRoom && !docGroup.includes("caderas")) { isDisabled = true; disabledReason = "(Solo G. Caderas)"; }
-                                                else if (isSugarbakerRoom && !docGroup.includes("sugarbaker")) { isDisabled = true; disabledReason = "(Solo G. Sugarbaker)"; }
-                                                else if (isMicrocirugiaRoom && !docGroup.includes("microcirug")) { isDisabled = true; disabledReason = "(Solo G. Microcirugía)"; }
-                                                else if ((isCaderasRoom || isSugarbakerRoom || isMicrocirugiaRoom) && !shift.person) { isDisabled = true; disabledReason = "(Seleccione Médico)"; }
-                                                
-                                                return <option key={`${groupName}-${i}`} value={room} disabled={isDisabled}>{room} {disabledReason}</option>
+                                            {rooms.map(room => {
+                                                const reason = getRoomRestriction(room, shift.date, shift.person, doctorsList);
+                                                return <option key={room} value={room} disabled={Boolean(reason)}>{room}{reason ? " (" + reason + ")" : ""}</option>;
                                             })}
                                         </optgroup>
                                     ))}
                                 </select>
                                 <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                             </div>
+                            {errors.room && <p className="text-xs font-semibold text-red-600">{errors.room}</p>}
                         </div>
+
                         <div className="md:col-span-2 lg:col-span-4 border-t border-slate-100 pt-5">
                             <label className="flex items-start gap-3 cursor-pointer text-sm font-medium text-slate-700">
-                                <input type="checkbox" checked={Boolean(shift.repeatToOtherDates)} onChange={(e) => {
-                                    updateShift(shift.id, 'repeatToOtherDates', e.target.checked);
-                                    if (!e.target.checked) updateShift(shift.id, 'additionalDates', []);
+                                <input type="checkbox" checked={Boolean(shift.repeatToOtherDates)} onChange={(event) => {
+                                    updateShift(shift.id, "repeatToOtherDates", event.target.checked);
+                                    if (!event.target.checked) updateShift(shift.id, "additionalDates", []);
                                 }} className="mt-0.5 w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue" />
-                                <span>¿Quieres repetir este cambio en otras fechas?<span className="block mt-1 text-xs font-normal text-slate-500">La persona, jornada y sala se conservarán. Cada fecha se guardará como un cambio individual.</span></span>
+                                <span>¿Quieres repetir este cambio en otras fechas?</span>
                             </label>
+                            <details className="mt-2 ml-7 text-xs text-slate-500">
+                                <summary className="cursor-pointer font-semibold text-keralty-blue">¿Qué es esto?</summary>
+                                <p className="mt-2 leading-relaxed">La persona, jornada y la misma sala se conservarán. Usa esta opción cuando, por ejemplo, un compañero va a hacer toda tu semana completa y es la misma sala, o cuando un compañero va a realizar todas tus noches del mes. Esta opción te permite elegir rápidamente las fechas sin necesidad de hacer los cambios uno por uno. Ten cuidado de no equivocarte con las fechas, ya que se repite la misma sala; si requieres hacer cambios múltiples con diferentes salas y diferentes médicos, usa la opción de Cambios Múltiples en el menú anterior.</p>
+                            </details>
                             {shift.repeatToOtherDates && (
-                                <div className="mt-4 p-4 bg-blue-50/60 border border-blue-100 rounded-lg">
+                                <div key={"additional-" + validationCycle} className={`mt-4 p-4 bg-blue-50/60 border border-blue-100 rounded-lg ${errorClass("additionalDates")}`}>
                                     <label className="text-sm font-medium text-keralty-blue block mb-2">Fechas adicionales</label>
                                     <MultiDateCalendar
                                         selectedDates={additionalDates}
-                                        onChange={(dates) => updateShift(shift.id, 'additionalDates', dates)}
+                                        onChange={(dates) => updateShift(shift.id, "additionalDates", dates)}
                                         allowedTypes={allowedDays}
                                         isDateAllowed={(date) => date !== shift.date && (isRoomNotRequired || !shift.room || isRoomAvailableOnDate(shift.room, date))}
                                     />
+                                    {errors.additionalDates && <p className="mt-2 text-xs font-semibold text-red-600">{errors.additionalDates}</p>}
                                 </div>
                             )}
                         </div>
@@ -706,7 +704,6 @@
                 </div>
             );
         };
-
 
 
         const DashboardChoices = ({ onChoose }) => (
@@ -726,7 +723,7 @@
                         <button type="button" onClick={() => onChoose('multiple')} className="action-card text-left bg-white border border-slate-200 rounded-lg p-6 focus:outline-none focus:ring-2 focus:ring-keralty-green">
                             <span className="w-11 h-11 rounded-lg bg-green-50 text-keralty-green flex items-center justify-center mb-4"><IconCalendar size={22} /></span>
                             <h3 className="text-lg font-bold text-keralty-blue">Realizar Cambios Múltiples</h3>
-                            <p className="mt-2 text-sm text-slate-500 leading-relaxed">Asigna varias fechas a un mismo médico, definiendo sala y jornada en cada una.</p>
+                            <p className="mt-2 text-sm text-slate-500 leading-relaxed">Crea varios turnos en bloque para un mismo médico, combina distintas fechas, salas y jornadas, y agrega varios grupos con médicos diferentes antes de guardar y enviar.</p>
                         </button>
                     </div>
                 </div>
@@ -750,6 +747,8 @@
             const [draftSavedPulse, setDraftSavedPulse] = useState(false);
             const [conflictMessage, setConflictMessage] = useState("");
             const [transferPulse, setTransferPulse] = useState(0);
+            const [fieldErrors, setFieldErrors] = useState({});
+            const [validationCycle, setValidationCycle] = useState(0);
             const formTopRef = useRef(null);
             const doctorSelectRef = useRef(null);
             const savedSnapshotRef = useRef("");
@@ -780,6 +779,11 @@
                 (isRoomNotRequired || isRoomAvailableOnDate(draft.room, draft.date)) &&
                 !scheduleConflict
             );
+            const hasInProgressChange = Boolean(draft.date || draft.room);
+            const groupsAreComplete = changes.length > 0 && lots.every(lot => (
+                Boolean(lot.doctor) && changes.some(change => change.lotId === lot.id)
+            ));
+            const isMultipleComplete = groupsAreComplete && (!hasInProgressChange || isDraftReady);
             const currentSnapshot = JSON.stringify({ lots, activeLotId, draft, changes });
             const hasUnsavedData = hasDraftData && currentSnapshot !== savedSnapshotRef.current;
             const getGroupSignature = (lot, sourceChanges) => JSON.stringify({
@@ -829,17 +833,41 @@
                         }
 
                         if (!isActive || !restored) return;
-                        const restoredLots = Array.isArray(restored.lots) && restored.lots.length > 0 ? restored.lots : [createLot()];
-                        const restoredChanges = Array.isArray(restored.changes) ? restored.changes : [];
-                        const restoredDraft = restored.draft && typeof restored.draft === "object" ? restored.draft : { date: "", type: "", room: "" };
+                        const today = getBogotaTodayString();
+                        const originalChanges = Array.isArray(restored.changes) ? restored.changes : [];
+                        const restoredChanges = originalChanges.filter(change => change.date && change.date >= today);
+                        const removedPastChanges = originalChanges.length - restoredChanges.length;
+                        let restoredLots = Array.isArray(restored.lots) && restored.lots.length > 0 ? restored.lots : [createLot()];
+                        restoredLots = restoredLots.filter(lot => restoredChanges.some(change => change.lotId === lot.id));
+                        if (restoredLots.length === 0) restoredLots = [createLot()];
+                        const rawDraft = restored.draft && typeof restored.draft === "object" ? restored.draft : { date: "", type: "", room: "" };
+                        const restoredDraft = rawDraft.date && rawDraft.date < today ? { date: "", type: rawDraft.type || "", room: "" } : rawDraft;
                         const restoredActiveLotId = restoredLots.some(lot => lot.id === restored.activeLotId) ? restored.activeLotId : restoredLots[0].id;
                         const normalized = { lots: restoredLots, activeLotId: restoredActiveLotId, draft: restoredDraft, changes: restoredChanges };
+
+                        if (removedPastChanges > 0) {
+                            if (restoredChanges.length === 0) {
+                                await backendPost({ action: "deleteDraft", email: ownerEmail });
+                                restored = null;
+                            } else {
+                                await backendPost({ action: "saveDraft", email: ownerEmail, userName: ownerName || "", draft: normalized });
+                            }
+                        }
+                        if (!restored) {
+                            savedSnapshotRef.current = "";
+                            setToast({ message: "Se eliminaron del borrador los turnos cuya fecha ya pasó.", type: "warning" });
+                            return;
+                        }
+
                         savedSnapshotRef.current = JSON.stringify(normalized);
                         setLots(restoredLots);
                         setActiveLotId(restoredActiveLotId);
                         setDraft(restoredDraft);
                         onRestoreDraft(restoredChanges);
-                        setToast({ message: "Tu borrador de cambios múltiples fue restaurado.", type: "success" });
+                        setToast({
+                            message: removedPastChanges > 0 ? "Se restauró el borrador y se eliminaron las fechas pasadas." : "Tu borrador de cambios múltiples fue restaurado.",
+                            type: removedPastChanges > 0 ? "warning" : "success"
+                        });
                     } catch (error) {
                         if (isActive) setToast({ message: "No fue posible cargar el borrador guardado.", type: "warning" });
                     } finally {
@@ -883,6 +911,7 @@
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
                 setConflictMessage("");
+                setFieldErrors({});
             };
 
             const selectLot = (lotId) => {
@@ -890,22 +919,23 @@
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
                 setConflictMessage("");
+                setFieldErrors({});
+            };
+
+            const showMultipleErrors = () => {
+                const errors = getMultipleFieldErrors(activeLot, draft);
+                setFieldErrors(errors);
+                setValidationCycle(current => current + 1);
+                if (Object.keys(errors).length > 0) {
+                    setShowCalendarWarning(Boolean(errors.type));
+                    setToast({ message: "Completa todos los campos obligatorios.", type: "error" });
+                    return false;
+                }
+                return true;
             };
 
             const addChange = () => {
-                if (!activeLot || !activeLot.doctor) {
-                    setToast({ message: "Selecciona primero el médico para este grupo.", type: "error" });
-                    return;
-                }
-                if (!draft.type) {
-                    setShowCalendarWarning(true);
-                    setToast({ message: "Selecciona primero el tipo de jornada.", type: "error" });
-                    return;
-                }
-                if (!draft.date || (!isRoomNotRequired && !draft.room)) {
-                    setToast({ message: "Completa la fecha y la sala para agregar el cambio.", type: "error" });
-                    return;
-                }
+                if (!showMultipleErrors()) return;
                 if (!allowedDays.includes(draftDayType)) {
                     setToast({ message: "La jornada seleccionada no está disponible para esta fecha.", type: "error" });
                     return;
@@ -933,6 +963,7 @@
                 setDraft(current => ({ date: "", type: current.type, room: "" }));
                 setShowCalendarWarning(false);
                 setConflictMessage("");
+                setFieldErrors({});
                 setTransferPulse(current => current + 1);
             };
 
@@ -960,8 +991,27 @@
                 }
             };
 
+            const validateMultipleCollection = () => {
+                const incompleteLot = lots.find(lot => !lot.doctor || !changes.some(change => change.lotId === lot.id));
+                if (incompleteLot) {
+                    setActiveLotId(incompleteLot.id);
+                    const nextErrors = {
+                        ...(!incompleteLot.doctor ? { person: "Debes seleccionar el médico primero" } : {}),
+                        ...(!changes.some(change => change.lotId === incompleteLot.id) ? { date: "Debes agregar al menos un cambio completo a este grupo" } : {})
+                    };
+                    setFieldErrors(nextErrors);
+                    setValidationCycle(current => current + 1);
+                    setToast({ message: "Cada grupo debe tener un médico y al menos un cambio completo.", type: "error" });
+                    return false;
+                }
+                if (hasInProgressChange && !showMultipleErrors()) return false;
+                setFieldErrors({});
+                return true;
+            };
+
             const saveDraft = async () => {
-                if (!ownerEmail || !hasDraftData || isSavingDraft) return;
+                if (!ownerEmail || isSavingDraft) return false;
+                if (!validateMultipleCollection()) return false;
                 const payload = { lots, activeLotId, draft, changes };
                 const serialized = JSON.stringify(payload);
                 setIsSavingDraft(true);
@@ -980,11 +1030,23 @@
                     setDraftSavedPulse(true);
                     window.setTimeout(() => setDraftSavedPulse(false), 1200);
                     setToast({ message: "Se guardó sin enviar correctamente", type: "success" });
+                    return true;
                 } catch (error) {
                     setToast({ message: "No se pudo guardar el borrador. Inténtalo nuevamente.", type: "error" });
+                    return false;
                 } finally {
                     setIsSavingDraft(false);
                 }
+            };
+
+            const saveDraftAndLeave = async () => {
+                const saved = await saveDraft();
+                if (saved) resetAndLeave();
+            };
+
+            const submitAll = () => {
+                if (!validateMultipleCollection()) return;
+                onSubmit();
             };
 
             const removeLot = (lotId) => {
@@ -1067,7 +1129,7 @@
                                                 <span className="block text-sm font-semibold">Grupo {index + 1}{lot.doctor ? " · " + formatDoctorFirstName(lot.doctor) : ""}</span>
                                                 <span className={`group-status mt-1 ${active ? "text-white/80" : (stored ? "text-emerald-700" : "text-amber-700")}`}>
                                                     <span aria-hidden="true">💾</span>
-                                                    {stored ? "Guardado en base de datos" : "Borrador local"}
+                                                    {stored ? "Borrador guardado" : "Borrador sin guardar"}
                                                 </span>
                                             </button>
                                             {lots.length > 1 && (
@@ -1088,42 +1150,47 @@
                             </div>
 
                             <div className="space-y-6">
-                                <div className="max-w-xl">
+                                <div key={"multiple-person-" + validationCycle} className={`max-w-xl rounded-lg ${fieldErrors.person ? "field-error-shake" : ""}`}>
                                     <label className="text-sm font-medium text-slate-700 block mb-2">1. Médico asignado para este grupo</label>
                                     <div className="relative">
-                                        <select ref={doctorSelectRef} value={activeLot ? activeLot.doctor : ""} onChange={(event) => updateDoctor(event.target.value)} disabled={activeChanges.length > 0} className={`w-full pl-3 pr-10 py-2.5 bg-white border rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-500 transition-shadow ${highlightDoctor ? "border-blue-400 ring-4 ring-blue-200" : "border-slate-200"}`}>
+                                        <select ref={doctorSelectRef} value={activeLot ? activeLot.doctor : ""} onChange={(event) => updateDoctor(event.target.value)} disabled={activeChanges.length > 0} className={`w-full pl-3 pr-10 py-2.5 bg-white border rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-500 transition-shadow ${highlightDoctor ? "border-blue-400 ring-4 ring-blue-200" : "border-slate-200"} ${fieldErrors.person ? "field-error" : ""}`}>
                                             <option value="">{isLoadingDoctors ? "Cargando médicos..." : "Selecciona un médico..."}</option>
                                             <DoctorOptions doctorsList={doctorsList} />
                                         </select>
                                         <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                                     </div>
+                                    {fieldErrors.person && <p className="mt-2 text-xs font-semibold text-red-600">{fieldErrors.person}</p>}
                                     {activeChanges.length > 0 && <p className="mt-2 text-xs text-slate-500">El médico queda fijado mientras existan cambios en este grupo.</p>}
                                 </div>
 
-                                <div className="max-w-xl border-t border-slate-200 pt-5">
+                                <div key={"multiple-type-" + validationCycle} className={`max-w-xl border-t border-slate-200 pt-5 ${fieldErrors.type ? "field-error-shake" : ""}`}>
                                     <label className="text-sm font-medium text-slate-700 block mb-2">2. Tipo de Jornada</label>
                                     <div className="relative">
                                         <select value={draft.type} onChange={(event) => {
                                             setDraft({ date: "", type: event.target.value, room: "" });
                                             setShowCalendarWarning(false);
                                             setConflictMessage("");
-                                        }} disabled={!activeLot || !activeLot.doctor} className="w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">
+                                            setFieldErrors(current => ({ ...current, type: undefined, date: undefined, room: undefined }));
+                                        }} disabled={!activeLot || !activeLot.doctor} className={`w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-400 ${fieldErrors.type ? "field-error" : ""}`}>
                                             <option value="">{activeLot && activeLot.doctor ? "Selecciona jornada..." : "Selecciona primero el médico"}</option>
                                             {Object.entries(SHIFT_TYPES).map(([category, types]) => <optgroup key={category} label={category}>{types.map(type => <option key={type} value={category + " - " + type}>{type}</option>)}</optgroup>)}
                                         </select>
                                         <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                                     </div>
+                                    {fieldErrors.type && <p className="mt-2 text-xs font-semibold text-red-600">{fieldErrors.type}</p>}
                                 </div>
 
                                 <div className="border-t border-slate-200 pt-5">
                                     <p className="text-sm font-medium text-slate-700 mb-4">3. Fecha y sala para este cambio</p>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
-                                        <div className="space-y-2">
+                                        <div key={"multiple-date-" + validationCycle} className={`space-y-2 rounded-lg ${fieldErrors.date ? "field-error-shake" : ""}`}>
                                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconCalendar /></span> Fecha</label>
+                                            <div className={fieldErrors.date ? "rounded-lg field-error" : ""}>
                                             {draft.type ? (
                                                 <CustomCalendar value={draft.date} onChange={(date) => {
                                                     setDraft(current => ({ ...current, date, room: "" }));
                                                     setConflictMessage("");
+                                                    setFieldErrors(current => ({ ...current, date: undefined, room: undefined }));
                                                 }} allowedTypes={allowedDays} />
                                             ) : (
                                                 <button type="button" onClick={() => setShowCalendarWarning(true)} className="button-press w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-lg flex justify-between items-center text-left text-slate-400">
@@ -1131,16 +1198,19 @@
                                                     <IconCalendar size={18} />
                                                 </button>
                                             )}
-                                            {showCalendarWarning && !draft.type && <p className="text-sm font-semibold text-red-600">Selecciona primero el tipo de jornada</p>}
+                                            </div>
+                                            {fieldErrors.date && <p className="text-xs font-semibold text-red-600">{fieldErrors.date}</p>}
+                                            {showCalendarWarning && !draft.type && !fieldErrors.type && <p className="text-sm font-semibold text-red-600">Selecciona primero el tipo de jornada</p>}
                                         </div>
 
-                                        <div className="space-y-2">
+                                        <div key={"multiple-room-" + validationCycle} className={`space-y-2 rounded-lg ${fieldErrors.room ? "field-error-shake" : ""}`}>
                                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconLayout /></span> Sala</label>
                                             <div className="relative">
                                                 <select value={draft.room} onChange={(event) => {
                                                     setDraft(current => ({ ...current, room: event.target.value }));
                                                     setConflictMessage("");
-                                                }} disabled={isRoomNotRequired || !draft.date} className="w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">
+                                                    setFieldErrors(current => ({ ...current, room: undefined }));
+                                                }} disabled={isRoomNotRequired || !draft.date} className={`w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-400 ${fieldErrors.room ? "field-error" : ""}`}>
                                                     <option value="">{isRoomNotRequired ? "No aplica" : (draft.date ? "Selecciona sala..." : "Selecciona primero la fecha")}</option>
                                                     {Object.entries(ROOMS_GROUPED).map(([groupName, rooms]) => (
                                                         <optgroup key={groupName} label={groupName}>
@@ -1153,6 +1223,7 @@
                                                 </select>
                                                 <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                                             </div>
+                                            {fieldErrors.room && <p className="text-xs font-semibold text-red-600">{fieldErrors.room}</p>}
                                         </div>
                                     </div>
 
@@ -1222,11 +1293,11 @@
 
                         <div className="multiple-panel p-5">
                             <div className="w-full sm:max-w-lg ml-auto">
-                                <button type="button" onClick={saveDraft} disabled={!hasDraftData || isSavingDraft} className={`draft-save-button button-press w-full inline-flex items-center justify-center px-5 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed ${draftSavedPulse ? "draft-save-button-success" : ""}`}>
+                                <button type="button" onClick={saveDraft} disabled={isSavingDraft} aria-disabled={!isMultipleComplete} className={`draft-save-button button-press w-full inline-flex items-center justify-center px-5 py-2.5 rounded-lg font-medium border ${isMultipleComplete ? "bg-white text-keralty-blue border-keralty-blue hover:bg-blue-50" : "save-incomplete border-slate-400"} ${draftSavedPulse ? "draft-save-button-success" : ""}`}>
                                     {isSavingDraft ? <IconRefresh className="animate-spin mr-2" size={18} /> : <span className="mr-2"><IconSave size={18} /></span>} {isSavingDraft ? "Guardando..." : "Guardar sin enviar"}
                                 </button>
                                 <p className="mt-2 text-xs leading-relaxed text-slate-500">Guarda los cambios y grupos sin enviarlos todavía, por si necesitas añadir más cambios que aún están a la espera de confirmación</p>
-                                <button type="button" onClick={onSubmit} disabled={isSubmitting || changes.length === 0} className="button-press mt-4 w-full inline-flex items-center justify-center px-6 py-3 rounded-lg font-medium text-white bg-keralty-green hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed">
+                                <button type="button" onClick={submitAll} disabled={isSubmitting} aria-disabled={!isMultipleComplete} className={`button-press mt-4 w-full inline-flex items-center justify-center px-6 py-3 rounded-lg font-medium ${isMultipleComplete ? "save-ready" : "save-incomplete"}`}>
                                     {isSubmitting ? <IconRefresh className="animate-spin mr-2" /> : <span className="mr-2"><IconSave /></span>} Guardar y enviar todos
                                 </button>
                             </div>
@@ -1247,14 +1318,156 @@
                                         ? "¿Estás seguro de que deseas eliminar este grupo? Los cambios incluidos se quitarán de la lista."
                                         : "Los cambios no se han guardado. Si continúas, se perderán las selecciones y los grupos actuales."}
                                 </p>
-                                <div className="flex gap-3">
-                                    <button type="button" onClick={() => setConfirmation(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Quedarse aquí</button>
-                                    <button type="button" onClick={confirmPendingAction} className="button-press flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600">
-                                        {confirmation.type === "delete" ? "Sí, eliminar" : "Salir sin guardar"}
-                                    </button>
+                                <div className="flex flex-col gap-3">
+                                    {confirmation.type === "back" && (
+                                        <button type="button" onClick={saveDraftAndLeave} disabled={isSavingDraft} className="button-press w-full py-2.5 px-3 bg-keralty-green text-white rounded-lg font-medium hover:opacity-90 disabled:opacity-60">
+                                            {isSavingDraft ? "Guardando..." : "Guardar borradores sin enviar todavía y luego salir"}
+                                        </button>
+                                    )}
+                                    <div className="flex gap-3">
+                                        <button type="button" onClick={() => setConfirmation(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Quedarse aquí</button>
+                                        <button type="button" onClick={confirmPendingAction} className="button-press flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600">
+                                            {confirmation.type === "delete" ? "Sí, eliminar" : "Salir sin guardar"}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                    )}
+                </section>
+            );
+        };
+
+        const HistorySection = ({ history, isLoading, show, onToggle, selectedIds, onSelectIds, onRequestDelete, motionEnabled }) => {
+            const [expandedDates, setExpandedDates] = useState({});
+            const AnimatePresence = motionEnabled && window.Motion ? window.Motion.AnimatePresence : null;
+
+            useEffect(() => {
+                if (!show) setExpandedDates({});
+            }, [show]);
+
+            const dateGroups = history.reduce((groups, entry) => {
+                const key = entry.fechaRegistro || "Sin fecha";
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(entry);
+                return groups;
+            }, {});
+            const orderedDates = Object.keys(dateGroups);
+            const allSelected = history.length > 0 && history.every(entry => selectedIds.includes(entry.rowId));
+            const setChecked = (event, ids) => {
+                event.stopPropagation();
+                onSelectIds(ids, event.target.checked);
+            };
+
+            const renderEntry = (entry) => (
+                <div key={entry.rowId} className={`px-4 py-3 flex items-start gap-3 ${selectedIds.includes(entry.rowId) ? "bg-blue-50/60" : "bg-white"}`}>
+                    <input
+                        type="checkbox"
+                        checked={selectedIds.includes(entry.rowId)}
+                        onChange={(event) => onSelectIds([entry.rowId], event.target.checked)}
+                        className="mt-1 w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer"
+                    />
+                    <div className="flex-1 grid grid-cols-1 sm:grid-cols-5 gap-1 sm:gap-3 text-sm">
+                        <span className="font-semibold text-slate-800">{entry.fecha}</span>
+                        <span className="sm:col-span-2 text-keralty-blue font-medium">{entry.persona}</span>
+                        <span className="text-slate-600">{formatShiftLabel(entry.jornada)}</span>
+                        <span className="text-slate-500">{entry.sala}</span>
+                    </div>
+                    <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-keralty-green text-white">{entry.estado}</span>
+                </div>
+            );
+
+            return (
+                <section>
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                        <h3 className="text-lg font-bold text-keralty-blue flex items-center"><span className="text-keralty-green mr-2"><IconClock /></span> Registro de Cambios de Turnos</h3>
+                        <button type="button" onClick={onToggle} className="button-press inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-keralty-blue bg-white border border-slate-200 hover:bg-blue-50">
+                            {show ? "Ocultar Registro de Cambios" : "Mostrar Registro de Cambios"}
+                        </button>
+                    </div>
+
+                    {show && (
+                        <MotionView enabled={motionEnabled} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
+                            {isLoading ? (
+                                <div className="bg-white shadow-sm rounded-lg border border-slate-200 p-8 text-center text-slate-600">
+                                    <div className="loading-dots mb-3"><span></span><span></span><span></span></div>
+                                    <p className="text-sm font-medium">Un momento, se están cargando tus cambios</p>
+                                </div>
+                            ) : history.length === 0 ? (
+                                <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">No tienes turnos pendientes a futuro solicitados por ti.</div>
+                            ) : (
+                                <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                                    <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
+                                        <label className="flex items-center text-sm font-medium text-slate-700 cursor-pointer">
+                                            <input type="checkbox" checked={allSelected} onChange={(event) => onSelectIds(history.map(entry => entry.rowId), event.target.checked)} className="mr-3 w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" />
+                                            Seleccionar todos
+                                        </label>
+                                        <span className="text-xs text-slate-500">{history.length} cambio(s)</span>
+                                    </div>
+
+                                    <div className="divide-y divide-slate-200">
+                                        {orderedDates.map(dateKey => {
+                                            const entries = dateGroups[dateKey];
+                                            const dateIds = entries.map(entry => entry.rowId);
+                                            const dateSelected = dateIds.every(id => selectedIds.includes(id));
+                                            const isExpanded = Boolean(expandedDates[dateKey]);
+                                            const multipleEntries = entries.filter(entry => entry.modo === "multiple" || entry.grupoId);
+                                            const individualEntries = entries.filter(entry => !(entry.modo === "multiple" || entry.grupoId));
+                                            const multipleGroups = multipleEntries.reduce((groups, entry) => {
+                                                const key = entry.grupoId || "multiple-" + dateKey;
+                                                if (!groups[key]) groups[key] = [];
+                                                groups[key].push(entry);
+                                                return groups;
+                                            }, {});
+
+                                            return (
+                                                <div key={dateKey}>
+                                                    <div className="p-4 bg-white flex items-center gap-3">
+                                                        <input type="checkbox" checked={dateSelected} onChange={(event) => setChecked(event, dateIds)} aria-label={"Seleccionar todos los cambios enviados el " + dateKey} className="w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" />
+                                                        <button type="button" onClick={() => setExpandedDates(current => ({ ...current, [dateKey]: !isExpanded }))} className="button-press flex-1 flex items-center justify-between text-left">
+                                                            <span className="font-semibold text-keralty-blue">Cambios enviados el día {dateKey}</span>
+                                                            <span className={`text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}><IconChevronDown /></span>
+                                                        </button>
+                                                    </div>
+
+                                                    {isExpanded && (
+                                                        <div className="border-t border-slate-100 bg-slate-50 p-3 space-y-3">
+                                                            {individualEntries.length > 0 && (
+                                                                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                                                                    <div className="px-4 py-2 bg-slate-100 text-xs font-bold text-slate-600">Cambios individuales</div>
+                                                                    <div className="divide-y divide-slate-100">{individualEntries.map(renderEntry)}</div>
+                                                                </div>
+                                                            )}
+                                                            {Object.entries(multipleGroups).map(([groupId, groupEntries], groupIndex) => {
+                                                                const groupIds = groupEntries.map(entry => entry.rowId);
+                                                                const groupSelected = groupIds.every(id => selectedIds.includes(id));
+                                                                return (
+                                                                    <div key={groupId} className="border border-blue-200 rounded-lg overflow-hidden">
+                                                                        <div className="px-4 py-2.5 bg-blue-50 flex items-center gap-3">
+                                                                            <input type="checkbox" checked={groupSelected} onChange={(event) => setChecked(event, groupIds)} aria-label={"Seleccionar todo el grupo múltiple " + (groupIndex + 1)} className="w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" />
+                                                                            <span className="text-xs font-bold text-keralty-blue">Grupo de Cambios Múltiples #{groupIndex + 1}</span>
+                                                                        </div>
+                                                                        <div className="divide-y divide-slate-100">{groupEntries.map(renderEntry)}</div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {selectedIds.length > 0 && (
+                                        <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+                                            <button type="button" onClick={onRequestDelete} className="button-press flex justify-center items-center px-4 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 shadow-sm font-medium w-full md:w-auto">
+                                                <IconTrash size={18} className="mr-2" /> Eliminar {selectedIds.length} cambio(s)
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </MotionView>
                     )}
                 </section>
             );
@@ -1275,6 +1488,8 @@
             const [shifts, setShifts] = useState([{ id: '1', person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]);
             const [isSubmitting, setIsSubmitting] = useState(false);
             const [validationError, setValidationError] = useState("");
+            const [shiftFieldErrors, setShiftFieldErrors] = useState({});
+            const [individualValidationCycle, setIndividualValidationCycle] = useState(0);
             const [toast, setToast] = useState(null);
             
             // NUEVOS ESTADOS PARA HISTORIAL Y CANCELACIÓN
@@ -1296,6 +1511,13 @@
             const [isLoadingDoctors, setIsLoadingDoctors] = useState(true);
             const [isPendingApproval, setIsPendingApproval] = useState(false);
             const doctorsLoadedRef = useRef(false);
+
+            useEffect(() => {
+                setShowHistory(false);
+                setSelectedHistory([]);
+                setShiftFieldErrors({});
+                setValidationError("");
+            }, [activeView]);
             
             const parseJwt = (token) => { try { return JSON.parse(atob(token.split('.')[1])); } catch (e) { return null; } };
 
@@ -1545,20 +1767,48 @@
                 }
                 completeLogout();
             };
-            const addShift = () => { setValidationError(""); setShifts(current => [...current, { id: Date.now().toString(), person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]); };
-            const removeShift = (id) => { setValidationError(""); setShifts(current => current.filter(s => s.id !== id)); };
-            const updateShift = (id, field, value) => { setValidationError(""); setShifts(current => current.map(s => s.id === id ? { ...s, [field]: value } : s)); };
+            const addShift = () => { setValidationError(""); setShifts(current => [...current, { id: Date.now().toString(), person: "", type: "", date: "", room: "", repeatToOtherDates: false, additionalDates: [] }]); };
+            const removeShift = (id) => {
+                setValidationError("");
+                setShiftFieldErrors(current => {
+                    const next = { ...current };
+                    delete next[id];
+                    return next;
+                });
+                setShifts(current => current.filter(shift => shift.id !== id));
+            };
+            const updateShift = (id, field, value) => {
+                setValidationError("");
+                setShiftFieldErrors(current => ({
+                    ...current,
+                    [id]: { ...(current[id] || {}), [field]: undefined }
+                }));
+                setShifts(current => current.map(shift => shift.id === id ? { ...shift, [field]: value } : shift));
+            };
+            const isIndividualComplete = shifts.length > 0 && shifts.every(shift => (
+                Object.keys(getShiftFieldErrors(shift)).length === 0 &&
+                (isRoomNotRequiredForType(shift.type) || (
+                    isRoomAvailableOnDate(shift.room, shift.date) &&
+                    !getRoomRestriction(shift.room, shift.date, shift.person, doctorsList)
+                ))
+            ));
 
-            const sendChangesToBackend = async (changes) => {
+            const sendChangesToBackend = async (changes, mode = "individual") => {
+                const submissionId = mode + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+                const submittedAt = new Date().toISOString();
                 const payload = {
                     solicitante: user.name,
                     correoSolicitante: user.email,
+                    modo: mode,
+                    submissionId,
                     cambios: changes.map(shift => ({
                         persona: shift.person,
                         jornada: shift.type,
                         fecha: shift.date,
                         sala: isRoomNotRequiredForType(shift.type) ? "N/A" : shift.room,
-                        timestamp: new Date().toISOString()
+                        timestamp: submittedAt,
+                        modo: mode,
+                        grupoId: mode === "multiple" ? submissionId + "::" + (shift.lotId || "grupo") : ""
                     }))
                 };
                 const result = await backendPost(payload);
@@ -1599,7 +1849,7 @@
                 }
                 setIsSubmitting(true);
                 try {
-                    await sendChangesToBackend(batchChanges);
+                    await sendChangesToBackend(batchChanges, "multiple");
                     setToast({ message: batchChanges.length + " solicitud(es) guardada(s) correctamente.", type: "success" });
                     try {
                         await backendPost({ action: "deleteDraft", email: user.email });
@@ -1619,39 +1869,36 @@
             };
 
             const handleSubmit = async () => {
-                const individualShifts = shifts.flatMap(shift => {
-                    const dates = [shift.date, ...(shift.repeatToOtherDates ? (shift.additionalDates || []) : [])];
-                    return [...new Set(dates.filter(Boolean))].map(date => ({ ...shift, date }));
+                const errorsByShift = {};
+                shifts.forEach(shift => {
+                    const errors = getShiftFieldErrors(shift);
+                    if (shift.room && !isRoomNotRequiredForType(shift.type)) {
+                        const restriction = getRoomRestriction(shift.room, shift.date, shift.person, doctorsList);
+                        if (restriction || !isRoomAvailableOnDate(shift.room, shift.date)) errors.room = restriction || "La sala no está disponible para esta fecha";
+                    }
+                    if (Object.keys(errors).length > 0) errorsByShift[shift.id] = errors;
                 });
 
-                const isValid = individualShifts.every(shift => (
-                    shift.person &&
-                    shift.type &&
-                    shift.date &&
-                    (shift.type.includes("Nocturnos") || shift.type.includes("Disponibilidad") || shift.type.includes("Extendido") || shift.room)
-                ));
-                const hasUnavailableRoom = individualShifts.some(shift => (
-                    !shift.type.includes("Nocturnos") &&
-                    !shift.type.includes("Disponibilidad") &&
-                    !shift.type.includes("Extendido") &&
-                    !isRoomAvailableOnDate(shift.room, shift.date)
-                ));
-
-                if (!isValid) {
-                    setValidationError("⚠️ Faltan campos por diligenciar en uno o más turnos.");
-                    return setToast({ message: "Completa todos los campos obligatorios.", type: "error" });
-                }
-                if (hasUnavailableRoom) {
-                    setValidationError("⚠️ Una sala no está disponible para una de las fechas seleccionadas.");
-                    return setToast({ message: "Ajusta la sala o las fechas adicionales antes de guardar.", type: "error" });
+                if (Object.keys(errorsByShift).length > 0) {
+                    setShiftFieldErrors(errorsByShift);
+                    setIndividualValidationCycle(current => current + 1);
+                    setValidationError("Faltan campos por diligenciar en uno o más turnos.");
+                    setToast({ message: "Completa todos los campos obligatorios.", type: "error" });
+                    return;
                 }
 
+                const individualShifts = shifts.flatMap(shift => {
+                    const dates = [shift.date, ...(shift.repeatToOtherDates ? (shift.additionalDates || []) : [])];
+                    return [...new Set(dates)].map(date => ({ ...shift, date }));
+                });
+
+                setShiftFieldErrors({});
                 setValidationError("");
                 setIsSubmitting(true);
                 try {
-                    await sendChangesToBackend(individualShifts);
+                    await sendChangesToBackend(individualShifts, "individual");
                     setToast({ message: individualShifts.length + " solicitud(es) guardada(s) correctamente.", type: "success" });
-                    setShifts([{ id: Date.now().toString(), person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]);
+                    setShifts([{ id: Date.now().toString(), person: "", type: "", date: "", room: "", repeatToOtherDates: false, additionalDates: [] }]);
                     refreshHistoryAfterWrite();
                 } catch (error) {
                     setToast({ message: "Error al guardar.", type: "error" });
@@ -1660,21 +1907,16 @@
                 }
             };
 
-            // MANEJO DE SELECCIÓN PARA ELIMINAR TURNOS
-            const handleSelectHistory = (rowId, isChecked) => {
-                if (isChecked) {
-                    setSelectedHistory([...selectedHistory, rowId]);
-                } else {
-                    setSelectedHistory(selectedHistory.filter(id => id !== rowId));
-                }
-            };
-
-            const handleSelectAll = (e) => {
-                if (e.target.checked) {
-                    setSelectedHistory(history.map(h => h.rowId));
-                } else {
-                    setSelectedHistory([]);
-                }
+            // El historial conserva filas independientes; estas acciones solo agrupan la selección visual.
+            const handleSelectIds = (rowIds, isChecked) => {
+                setSelectedHistory(current => {
+                    const next = new Set(current);
+                    rowIds.forEach(rowId => {
+                        if (isChecked) next.add(rowId);
+                        else next.delete(rowId);
+                    });
+                    return Array.from(next);
+                });
             };
 
             const executeCancel = async () => {
@@ -1716,12 +1958,12 @@
                                 <button type="button" onClick={() => setActiveView('home')} className="text-sm text-white/90 hover:text-white font-medium">Volver</button>
                             </div>
                             <div className="p-6 bg-slate-50 rounded-b-xl">
-                                {shifts.map((shift, idx) => <ShiftEntry key={shift.id} shift={shift} index={idx} updateShift={updateShift} removeShift={removeShift} doctorsList={doctorsList} isLoadingDoctors={isLoadingDoctors}/>)}
+                                {shifts.map((shift, idx) => <ShiftEntry key={shift.id} shift={shift} index={idx} updateShift={updateShift} removeShift={removeShift} doctorsList={doctorsList} isLoadingDoctors={isLoadingDoctors} errors={shiftFieldErrors[shift.id] || {}} validationCycle={individualValidationCycle}/>)}
                                 <div className="mt-4 flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
                                     <button onClick={addShift} className="flex items-center text-keralty-blue font-medium px-4 py-2 border border-dashed border-keralty-blue hover:bg-blue-50 rounded-lg justify-center transition-colors"><span className="mr-1"><IconPlus /></span> Agregar otro</button>
                                     <div className="flex flex-col items-end w-full sm:w-auto">
                                         {validationError && <div className="text-red-500 text-sm font-bold mb-2 animate-bounce-short">{validationError}</div>}
-                                        <button onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto flex items-center justify-center px-6 py-3 rounded-xl font-medium text-white bg-keralty-green hover:opacity-90 transition-opacity">
+                                        <button onClick={handleSubmit} disabled={isSubmitting} aria-disabled={!isIndividualComplete} className={`w-full sm:w-auto flex items-center justify-center px-6 py-3 rounded-xl font-medium transition-all ${isIndividualComplete ? "save-ready" : "save-incomplete"}`}>
                                             {isSubmitting ? <IconRefresh className="animate-spin mr-2" /> : <span className="mr-2"><IconSave /></span>} Guardar y enviar
                                         </button>
                                     </div>
@@ -1955,119 +2197,16 @@
 
                     <main className="max-w-5xl mx-auto px-4 mt-8 space-y-8">
                         {AnimatePresence ? <AnimatePresence mode="wait">{requestView}</AnimatePresence> : requestView}
-{activeView !== 'home' && (
-                        <section>
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                                <h3 className="text-lg font-bold text-keralty-blue flex items-center"><span className="text-keralty-green mr-2"><IconClock /></span> Registro de Cambios de Turnos</h3>
-                                <button type="button" onClick={handleHistoryToggle} className="button-press inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-keralty-blue bg-white border border-slate-200 hover:bg-blue-50">
-                                    {showHistory ? "Ocultar Registro de Cambios" : "Mostrar Registro de Cambios"}
-                                </button>
-                            </div>
-                            
-                            {showHistory && (
-                                <MotionView enabled={motionEnabled} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
-                                    {isLoadingHistory ? (
-                                        <div className="bg-white shadow-sm rounded-xl border border-slate-200 p-8 text-center text-slate-600">
-                                            <div className="loading-dots mb-3"><span></span><span></span><span></span></div>
-                                            <p className="text-sm font-medium">Un momento, se están cargando tus cambios</p>
-                                        </div>
-                                    ) : (
-                            <div className="bg-white shadow-sm rounded-xl border border-slate-200 overflow-hidden">
-                                {history.length === 0 ? (
-                                    <div className="p-8 text-center text-slate-500">
-                                        No tienes turnos pendientes a futuro solicitados por ti.
-                                    </div>
-                                ) : (
-                                    <div>
-                                        {/* VISTA PARA COMPUTADORAS (Tabla) */}
-                                        <div className="hidden md:block overflow-x-auto">
-                                            <table className="min-w-full divide-y divide-slate-200">
-                                                <thead className="bg-slate-50">
-                                                    <tr>
-                                                        <th className="px-6 py-3 w-12 text-left">
-                                                            <input type="checkbox" onChange={handleSelectAll} checked={selectedHistory.length === history.length && history.length > 0} className="w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" />
-                                                        </th>
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Fecha Turno</th>
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Profesional</th>
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Jornada</th>
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Sala</th>
-                                                        <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase">Estado</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-200">
-                                                    {history.map((entry) => (
-                                                        <tr key={entry.rowId} className={`hover:bg-slate-50 transition-colors ${selectedHistory.includes(entry.rowId) ? 'bg-blue-50/50' : ''}`}>
-                                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                                <input type="checkbox" checked={selectedHistory.includes(entry.rowId)} onChange={(e) => handleSelectHistory(entry.rowId, e.target.checked)} className="w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" />
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-medium">{entry.fecha}</td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">{entry.persona}</td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{formatShiftLabel(entry.jornada)}</td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500"><span className="bg-slate-100 px-2 py-1 rounded font-medium">{entry.sala}</span></td>
-                                                            <td className="px-6 py-4 whitespace-nowrap"><span className="px-2 py-1 text-xs font-semibold rounded-full bg-keralty-green text-white">{entry.estado}</span></td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-
-                                        {/* VISTA PARA CELULARES (Tarjetas Compactas) */}
-                                        <div className="block md:hidden divide-y divide-slate-200">
-                                            <div className="p-4 bg-slate-50 flex items-center justify-between">
-                                                <label className="flex items-center text-sm font-medium text-slate-700 cursor-pointer">
-                                                    <input type="checkbox" onChange={handleSelectAll} checked={selectedHistory.length === history.length && history.length > 0} className="mr-3 w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" />
-                                                    Seleccionar todos
-                                                </label>
-                                            </div>
-                                            {history.map((entry) => (
-                                                <div 
-                                                    key={entry.rowId} 
-                                                    onClick={() => handleSelectHistory(entry.rowId, !selectedHistory.includes(entry.rowId))}
-                                                    className={`p-4 transition-colors cursor-pointer ${selectedHistory.includes(entry.rowId) ? 'bg-blue-50/60' : 'hover:bg-slate-50 bg-white'}`}
-                                                >
-                                                    <div className="flex items-start">
-                                                        <div className="pt-0.5">
-                                                            <input 
-                                                                type="checkbox" 
-                                                                checked={selectedHistory.includes(entry.rowId)} 
-                                                                onChange={(e) => handleSelectHistory(entry.rowId, e.target.checked)} 
-                                                                onClick={(e) => e.stopPropagation()} 
-                                                                className="mr-3 w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue cursor-pointer" 
-                                                            />
-                                                        </div>
-                                                        <div className="flex-1">
-                                                            <div className="flex items-center justify-between mb-1.5">
-                                                                <span className="font-bold text-slate-800 text-sm flex items-center"><IconCalendar size={14} className="mr-1.5 text-slate-400" /> {entry.fecha}</span>
-                                                                <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-keralty-green text-white">{entry.estado}</span>
-                                                            </div>
-                                                            <p className="text-sm font-semibold text-keralty-blue mb-2">{entry.persona}</p>
-                                                            <div className="flex flex-col space-y-1.5">
-                                                                <p className="text-xs text-slate-600 flex items-center"><span className="text-slate-400 mr-2"><IconClock size={14} /></span> {formatShiftLabel(entry.jornada)}</p>
-                                                                <p className="text-xs text-slate-600 flex items-center"><span className="text-slate-400 mr-2"><IconLayout size={14} /></span> {entry.sala}</p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        
-                                        {/* BOTÓN DE ELIMINAR (Adaptable) */}
-                                        {selectedHistory.length > 0 && (
-                                            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end animate-fade-in">
-                                                <button onClick={() => setShowCancelModal(true)} className="flex justify-center items-center px-4 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors shadow-sm font-medium w-full md:w-auto">
-                                                    <IconTrash size={18} className="mr-2" /> Eliminar {selectedHistory.length} cambio(s)
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                                    )}
-                                </MotionView>
-                            )}
-                        </section>
-
-                        )}
+<HistorySection
+                            history={history}
+                            isLoading={isLoadingHistory}
+                            show={showHistory}
+                            onToggle={handleHistoryToggle}
+                            selectedIds={selectedHistory}
+                            onSelectIds={handleSelectIds}
+                            onRequestDelete={() => setShowCancelModal(true)}
+                            motionEnabled={motionEnabled}
+                        />
                     </main>
                 </div>
             );
