@@ -55,6 +55,11 @@
         .loading-dots span:nth-child(3) { animation-delay: 0.3s; }
         .draft-save-button { transition: background-color 220ms ease, border-color 220ms ease, color 220ms ease, box-shadow 220ms ease, transform 160ms ease; }
         .draft-save-button-success { background-color: #dcfce7 !important; border-color: #8CC63F !important; color: #166534 !important; box-shadow: 0 0 0 3px rgba(140, 198, 63, 0.18); }
+        .multiple-panel { background: #ffffff; border: 1px solid #dbe3ec; border-radius: 8px; box-shadow: 0 8px 22px -18px rgba(0, 40, 85, 0.55); }
+        .multiple-panel-title { display: flex; align-items: center; gap: 0.55rem; color: #002855; font-weight: 700; }
+        .group-status { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.7rem; line-height: 1.1; }
+        .transfer-indicator { position: absolute; right: 1.25rem; bottom: -0.75rem; z-index: 5; width: 2.35rem; height: 2.35rem; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: #8CC63F; color: white; box-shadow: 0 8px 18px rgba(0, 40, 85, 0.22); pointer-events: none; animation: transferToVerification 680ms ease-out forwards; }
+        @keyframes transferToVerification { 0% { opacity: 0; transform: translateY(-22px) scale(0.78); } 35% { opacity: 1; } 100% { opacity: 0; transform: translateY(62px) scale(1.05); } }
         @keyframes loadingDot { 0%, 80%, 100% { transform: scale(0.55); opacity: 0.45; } 40% { transform: scale(1); opacity: 1; } }
         @media (max-width: 640px) {
             body { font-size: 14px; }
@@ -165,6 +170,57 @@
         const formatDoctorFirstName = (fullName) => {
             const firstName = String(fullName || "").trim().split(/\s+/).filter(Boolean)[0] || "";
             return firstName ? firstName.charAt(0).toLocaleUpperCase("es-CO") + firstName.slice(1).toLocaleLowerCase("es-CO") : "";
+        };
+
+        const formatDoctorFullName = (fullName) => String(fullName || "")
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean)
+            .map(part => part.charAt(0).toLocaleUpperCase("es-CO") + part.slice(1).toLocaleLowerCase("es-CO"))
+            .join(" ");
+
+        const formatShiftLabel = (value) => {
+            const label = String(value || "").trim();
+            const separatorIndex = label.indexOf(" - ");
+            return separatorIndex >= 0 ? label.slice(separatorIndex + 3) : label;
+        };
+
+        const SHIFT_TIME_RANGES = {
+            "Entre semana AM": { start: 7, end: 13 },
+            "Entre semana PM": { start: 13, end: 19 },
+            "Fin de semana Todo el día": { start: 7, end: 19 },
+            "Todo el día": { start: 7, end: 19 },
+            "Fin de semana AM": { start: 7, end: 13 },
+            "Fin de semana PM": { start: 13, end: 19 },
+            "Noche": { start: 19, end: 31 },
+            "Disponibilidad AM": { start: 7, end: 13 },
+            "Disponibilidad PM": { start: 13, end: 19 },
+            "Disponibilidad Noche": { start: 19, end: 31 },
+            "Disponibilidad U2": { start: 7, end: 19 },
+            "Extendido 1": { start: 19, end: 23 },
+            "Extendido 2": { start: 19, end: 23 },
+            "Extendido 3": { start: 19, end: 23 },
+            "Extendido Sabado": { start: 19, end: 23 },
+            "Extendido Sábado": { start: 19, end: 23 }
+        };
+
+        const getShiftTimeRange = (shiftType) => SHIFT_TIME_RANGES[formatShiftLabel(shiftType)] || null;
+        const shiftRangesOverlap = (first, second) => Boolean(first && second && first.start < second.end && second.start < first.end);
+        const findScheduleConflict = (candidate, existingChanges) => {
+            const candidateRange = getShiftTimeRange(candidate.type);
+            if (!candidateRange || !candidate.person || !candidate.date) return null;
+            return existingChanges.find(change => (
+                change.person === candidate.person &&
+                change.date === candidate.date &&
+                shiftRangesOverlap(candidateRange, getShiftTimeRange(change.type))
+            )) || null;
+        };
+        const findFirstScheduleConflict = (changes) => {
+            for (let index = 0; index < changes.length; index += 1) {
+                const previous = findScheduleConflict(changes[index], changes.slice(0, index));
+                if (previous) return { candidate: changes[index], previous };
+            }
+            return null;
         };
 
         const getMultipleDraftStorageKey = (user) => {
@@ -692,6 +748,8 @@
             const [isLoadingDraft, setIsLoadingDraft] = useState(true);
             const [isSavingDraft, setIsSavingDraft] = useState(false);
             const [draftSavedPulse, setDraftSavedPulse] = useState(false);
+            const [conflictMessage, setConflictMessage] = useState("");
+            const [transferPulse, setTransferPulse] = useState(0);
             const formTopRef = useRef(null);
             const doctorSelectRef = useRef(null);
             const savedSnapshotRef = useRef("");
@@ -703,13 +761,11 @@
             const isRoomNotRequired = isRoomNotRequiredForType(draft.type);
             const allowedDays = getAllowedDayTypes(draft.type);
             const draftDayType = getDayType(draft.date);
-            const isDuplicateSchedule = sameDoctorChanges.some(change => change.date === draft.date && change.type === draft.type);
-            const isNightShift = (type) => String(type || "").includes("Nocturnos");
-            const isExtendedShift = (type) => String(type || "").includes("Extendidos");
-            const hasNightExtendedConflict = sameDoctorChanges.some(change => (
-                change.date === draft.date &&
-                ((isNightShift(change.type) && isExtendedShift(draft.type)) || (isExtendedShift(change.type) && isNightShift(draft.type)))
-            ));
+            const scheduleConflict = activeLot ? findScheduleConflict({
+                person: activeLot.doctor,
+                date: draft.date,
+                type: draft.type
+            }, sameDoctorChanges) : null;
             const draftRoomRestriction = !isRoomNotRequired && draft.date && draft.room
                 ? getRoomRestriction(draft.room, draft.date, activeLot ? activeLot.doctor : "", doctorsList)
                 : "";
@@ -722,11 +778,27 @@
                 allowedDays.includes(draftDayType) &&
                 !draftRoomRestriction &&
                 (isRoomNotRequired || isRoomAvailableOnDate(draft.room, draft.date)) &&
-                !isDuplicateSchedule &&
-                !hasNightExtendedConflict
+                !scheduleConflict
             );
             const currentSnapshot = JSON.stringify({ lots, activeLotId, draft, changes });
             const hasUnsavedData = hasDraftData && currentSnapshot !== savedSnapshotRef.current;
+            const getGroupSignature = (lot, sourceChanges) => JSON.stringify({
+                doctor: lot.doctor,
+                changes: sourceChanges
+                    .filter(change => change.lotId === lot.id)
+                    .map(change => ({ person: change.person, date: change.date, type: change.type, room: change.room }))
+                    .sort((first, second) => (first.date + first.type + first.room).localeCompare(second.date + second.type + second.room))
+            });
+            const isGroupSaved = (lot) => {
+                if (!savedSnapshotRef.current) return false;
+                try {
+                    const saved = JSON.parse(savedSnapshotRef.current);
+                    const savedLot = (saved.lots || []).find(item => item.id === lot.id);
+                    return Boolean(savedLot) && getGroupSignature(lot, changes) === getGroupSignature(savedLot, saved.changes || []);
+                } catch (error) {
+                    return false;
+                }
+            };
             const AnimatePresence = motionEnabled && window.Motion ? window.Motion.AnimatePresence : null;
 
             useEffect(() => {
@@ -810,17 +882,19 @@
                 setLots(current => current.map(lot => lot.id === activeLotId ? { ...lot, doctor: name } : lot));
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
+                setConflictMessage("");
             };
 
             const selectLot = (lotId) => {
                 setActiveLotId(lotId);
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
+                setConflictMessage("");
             };
 
             const addChange = () => {
                 if (!activeLot || !activeLot.doctor) {
-                    setToast({ message: "Selecciona primero el médico para este lote.", type: "error" });
+                    setToast({ message: "Selecciona primero el médico para este grupo.", type: "error" });
                     return;
                 }
                 if (!draft.type) {
@@ -841,12 +915,10 @@
                     setToast({ message: roomRestriction || "La sala no está disponible para la fecha seleccionada.", type: "error" });
                     return;
                 }
-                if (isDuplicateSchedule) {
-                    setToast({ message: "Esta fecha ya tiene exactamente el mismo tipo de jornada en este lote.", type: "warning" });
-                    return;
-                }
-                if (hasNightExtendedConflict) {
-                    setToast({ message: "No puedes combinar Noche y Extendido en la misma fecha porque sus horarios se cruzan.", type: "error" });
+                if (scheduleConflict) {
+                    const message = "Error: Existe conflicto de cruce de horarios. Ya has agregado el turno de " + formatShiftLabel(scheduleConflict.type) + " para esta fecha.";
+                    setConflictMessage(message);
+                    setToast({ message, type: "error" });
                     return;
                 }
 
@@ -860,18 +932,21 @@
                 });
                 setDraft(current => ({ date: "", type: current.type, room: "" }));
                 setShowCalendarWarning(false);
+                setConflictMessage("");
+                setTransferPulse(current => current + 1);
             };
 
             const addNewLot = () => {
                 if (!activeLot || !activeLot.doctor || activeChanges.length === 0) {
-                    setToast({ message: "Agrega al menos un cambio al lote actual antes de crear otro.", type: "warning" });
+                    setToast({ message: "Agrega al menos un cambio al grupo actual antes de crear otro.", type: "warning" });
                     return;
                 }
                 const nextLot = createLot();
-                setLots(current => [...current, nextLot]);
+                setLots(current => [nextLot, ...current]);
                 setActiveLotId(nextLot.id);
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
+                setConflictMessage("");
 
                 if (window.matchMedia && window.matchMedia("(max-width: 767px)").matches) {
                     setHighlightDoctor(true);
@@ -921,6 +996,7 @@
                     setActiveLotId(remainingLots[0].id);
                     setDraft({ date: "", type: "", room: "" });
                     setShowCalendarWarning(false);
+                    setConflictMessage("");
                 }
             };
 
@@ -930,6 +1006,7 @@
                 setActiveLotId(nextLot.id);
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
+                setConflictMessage("");
                 setConfirmation(null);
                 onBack();
             };
@@ -968,121 +1045,147 @@
             }
 
             return (
-                <section ref={formTopRef} className="multiple-changes-view bg-white rounded-xl shadow-sm border border-slate-200 overflow-visible">
-                    <div className="bg-keralty-blue px-6 py-4 flex items-center justify-between rounded-t-lg">
+                <section ref={formTopRef} className="multiple-changes-view">
+                    <div className="bg-keralty-blue px-6 py-4 flex items-center justify-between rounded-lg shadow-sm">
                         <div className="flex items-center"><span className="text-keralty-green mr-2"><IconCalendar /></span><h2 className="text-lg font-semibold text-white">Cambios Múltiples</h2></div>
                         <button type="button" onClick={requestBack} className="text-sm text-white/90 hover:text-white font-medium">Volver</button>
                     </div>
 
-                    <div className="p-6 bg-slate-50 space-y-6">
-                        {lots.length > 1 && (
-                            <div className="flex flex-wrap gap-2 pb-5 border-b border-slate-200">
-                                {lots.map((lot, index) => (
-                                    <div key={lot.id} className="inline-flex items-center">
-                                        <button type="button" onClick={() => selectLot(lot.id)} className={`button-press px-3 py-2 text-sm font-medium border rounded-l-lg ${lot.id === activeLotId ? "bg-keralty-blue text-white border-keralty-blue" : "bg-white text-slate-600 border-slate-200 hover:bg-blue-50"}`}>
-                                            Lote {index + 1}{lot.doctor ? " · " + formatDoctorFirstName(lot.doctor) : ""}
-                                        </button>
-                                        {lots.length > 1 && (
-                                            <button type="button" onClick={() => setConfirmation({ type: "delete", lotId: lot.id })} title={"Eliminar lote " + (index + 1)} className={`button-press p-2 border border-l-0 rounded-r-lg ${lot.id === activeLotId ? "bg-keralty-blue text-white border-keralty-blue hover:bg-blue-900" : "bg-white text-red-500 border-slate-200 hover:bg-red-50"}`}>
-                                                <IconTrash size={16} />
+                    <div className="mt-5 space-y-5">
+                        <div className="multiple-panel p-5">
+                            <div className="multiple-panel-title mb-4">
+                                <span className="w-8 h-8 rounded-lg bg-blue-50 text-keralty-blue flex items-center justify-center"><IconFileText size={17} /></span>
+                                <h3>Grupos creados</h3>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {lots.map((lot, index) => {
+                                    const stored = isGroupSaved(lot);
+                                    const active = lot.id === activeLotId;
+                                    return (
+                                        <div key={lot.id} className={`inline-flex items-stretch border rounded-lg overflow-hidden ${active ? "border-keralty-blue shadow-sm" : "border-slate-200"}`}>
+                                            <button type="button" onClick={() => selectLot(lot.id)} className={`button-press px-3 py-2 text-left ${active ? "bg-keralty-blue text-white" : "bg-white text-slate-700 hover:bg-blue-50"}`}>
+                                                <span className="block text-sm font-semibold">Grupo {index + 1}{lot.doctor ? " · " + formatDoctorFirstName(lot.doctor) : ""}</span>
+                                                <span className={`group-status mt-1 ${active ? "text-white/80" : (stored ? "text-emerald-700" : "text-amber-700")}`}>
+                                                    <span aria-hidden="true">💾</span>
+                                                    {stored ? "Guardado en base de datos" : "Borrador local"}
+                                                </span>
                                             </button>
-                                        )}
+                                            {lots.length > 1 && (
+                                                <button type="button" onClick={() => setConfirmation({ type: "delete", lotId: lot.id })} title={"Eliminar grupo " + (index + 1)} className={`button-press px-2.5 border-l ${active ? "bg-keralty-blue text-white border-white/20 hover:bg-blue-900" : "bg-white text-red-500 border-slate-200 hover:bg-red-50"}`}>
+                                                    <IconTrash size={16} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="multiple-panel p-5 relative">
+                            <div className="multiple-panel-title mb-5">
+                                <span className="w-8 h-8 rounded-lg bg-green-50 text-keralty-green flex items-center justify-center"><IconPlus size={17} /></span>
+                                <h3>Configurar cambio</h3>
+                            </div>
+
+                            <div className="space-y-6">
+                                <div className="max-w-xl">
+                                    <label className="text-sm font-medium text-slate-700 block mb-2">1. Médico asignado para este grupo</label>
+                                    <div className="relative">
+                                        <select ref={doctorSelectRef} value={activeLot ? activeLot.doctor : ""} onChange={(event) => updateDoctor(event.target.value)} disabled={activeChanges.length > 0} className={`w-full pl-3 pr-10 py-2.5 bg-white border rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-500 transition-shadow ${highlightDoctor ? "border-blue-400 ring-4 ring-blue-200" : "border-slate-200"}`}>
+                                            <option value="">{isLoadingDoctors ? "Cargando médicos..." : "Selecciona un médico..."}</option>
+                                            <DoctorOptions doctorsList={doctorsList} />
+                                        </select>
+                                        <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                                     </div>
-                                ))}
-                            </div>
-                        )}
-
-                        <div className="max-w-xl">
-                            <label className="text-sm font-medium text-slate-700 block mb-2">1. Médico asignado para este lote</label>
-                            <div className="relative">
-                                <select ref={doctorSelectRef} value={activeLot ? activeLot.doctor : ""} onChange={(event) => updateDoctor(event.target.value)} disabled={activeChanges.length > 0} className={`w-full pl-3 pr-10 py-2.5 bg-white border rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-500 transition-shadow ${highlightDoctor ? "border-blue-400 ring-4 ring-blue-200" : "border-slate-200"}`}>
-                                    <option value="">{isLoadingDoctors ? "Cargando médicos..." : "Selecciona un médico..."}</option>
-                                    <DoctorOptions doctorsList={doctorsList} />
-                                </select>
-                                <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
-                            </div>
-                            {activeChanges.length > 0 && <p className="mt-2 text-xs text-slate-500">El médico queda fijado mientras existan cambios en este lote.</p>}
-                        </div>
-
-                        <div className="max-w-xl border-t border-slate-200 pt-6">
-                            <label className="text-sm font-medium text-slate-700 block mb-2">2. Tipo de Jornada</label>
-                            <div className="relative">
-                                <select value={draft.type} onChange={(event) => {
-                                    setDraft({ date: "", type: event.target.value, room: "" });
-                                    setShowCalendarWarning(false);
-                                }} disabled={!activeLot || !activeLot.doctor} className="w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">
-                                    <option value="">{activeLot && activeLot.doctor ? "Selecciona jornada..." : "Selecciona primero el médico"}</option>
-                                    {Object.entries(SHIFT_TYPES).map(([category, types]) => <optgroup key={category} label={category}>{types.map(type => <option key={type} value={category + " - " + type}>{type}</option>)}</optgroup>)}
-                                </select>
-                                <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
-                            </div>
-                        </div>
-
-                        <div className="border-t border-slate-200 pt-6">
-                            <p className="text-sm font-medium text-slate-700 mb-4">3. Fecha y sala para este cambio</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconCalendar /></span> Fecha</label>
-                                    {draft.type ? (
-                                        <CustomCalendar value={draft.date} onChange={(date) => setDraft(current => ({ ...current, date, room: "" }))} allowedTypes={allowedDays} isDateAllowed={(date) => !sameDoctorChanges.some(change => change.date === date && change.type === draft.type)} />
-                                    ) : (
-                                        <button type="button" onClick={() => setShowCalendarWarning(true)} className="button-press w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-lg flex justify-between items-center text-left text-slate-400">
-                                            <span>Seleccionar fecha...</span>
-                                            <IconCalendar size={18} />
-                                        </button>
-                                    )}
-                                    {showCalendarWarning && !draft.type && <p className="text-sm font-semibold text-red-600">Selecciona primero el tipo de jornada</p>}
+                                    {activeChanges.length > 0 && <p className="mt-2 text-xs text-slate-500">El médico queda fijado mientras existan cambios en este grupo.</p>}
                                 </div>
 
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconLayout /></span> Sala</label>
+                                <div className="max-w-xl border-t border-slate-200 pt-5">
+                                    <label className="text-sm font-medium text-slate-700 block mb-2">2. Tipo de Jornada</label>
                                     <div className="relative">
-                                        <select value={draft.room} onChange={(event) => setDraft(current => ({ ...current, room: event.target.value }))} disabled={isRoomNotRequired || !draft.date} className="w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">
-                                            <option value="">{isRoomNotRequired ? "No aplica" : (draft.date ? "Selecciona sala..." : "Selecciona primero la fecha")}</option>
-                                            {Object.entries(ROOMS_GROUPED).map(([groupName, rooms]) => (
-                                                <optgroup key={groupName} label={groupName}>
-                                                    {rooms.map(room => {
-                                                        const reason = getRoomRestriction(room, draft.date, activeLot ? activeLot.doctor : "", doctorsList);
-                                                        return <option key={room} value={room} disabled={Boolean(reason)}>{room}{reason ? " (" + reason + ")" : ""}</option>;
-                                                    })}
-                                                </optgroup>
-                                            ))}
+                                        <select value={draft.type} onChange={(event) => {
+                                            setDraft({ date: "", type: event.target.value, room: "" });
+                                            setShowCalendarWarning(false);
+                                            setConflictMessage("");
+                                        }} disabled={!activeLot || !activeLot.doctor} className="w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">
+                                            <option value="">{activeLot && activeLot.doctor ? "Selecciona jornada..." : "Selecciona primero el médico"}</option>
+                                            {Object.entries(SHIFT_TYPES).map(([category, types]) => <optgroup key={category} label={category}>{types.map(type => <option key={type} value={category + " - " + type}>{type}</option>)}</optgroup>)}
                                         </select>
                                         <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
                                     </div>
                                 </div>
+
+                                <div className="border-t border-slate-200 pt-5">
+                                    <p className="text-sm font-medium text-slate-700 mb-4">3. Fecha y sala para este cambio</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconCalendar /></span> Fecha</label>
+                                            {draft.type ? (
+                                                <CustomCalendar value={draft.date} onChange={(date) => {
+                                                    setDraft(current => ({ ...current, date, room: "" }));
+                                                    setConflictMessage("");
+                                                }} allowedTypes={allowedDays} />
+                                            ) : (
+                                                <button type="button" onClick={() => setShowCalendarWarning(true)} className="button-press w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-lg flex justify-between items-center text-left text-slate-400">
+                                                    <span>Seleccionar fecha...</span>
+                                                    <IconCalendar size={18} />
+                                                </button>
+                                            )}
+                                            {showCalendarWarning && !draft.type && <p className="text-sm font-semibold text-red-600">Selecciona primero el tipo de jornada</p>}
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconLayout /></span> Sala</label>
+                                            <div className="relative">
+                                                <select value={draft.room} onChange={(event) => {
+                                                    setDraft(current => ({ ...current, room: event.target.value }));
+                                                    setConflictMessage("");
+                                                }} disabled={isRoomNotRequired || !draft.date} className="w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">
+                                                    <option value="">{isRoomNotRequired ? "No aplica" : (draft.date ? "Selecciona sala..." : "Selecciona primero la fecha")}</option>
+                                                    {Object.entries(ROOMS_GROUPED).map(([groupName, rooms]) => (
+                                                        <optgroup key={groupName} label={groupName}>
+                                                            {rooms.map(room => {
+                                                                const reason = getRoomRestriction(room, draft.date, activeLot ? activeLot.doctor : "", doctorsList);
+                                                                return <option key={room} value={room} disabled={Boolean(reason)}>{room}{reason ? " (" + reason + ")" : ""}</option>;
+                                                            })}
+                                                        </optgroup>
+                                                    ))}
+                                                </select>
+                                                <span className="absolute right-3 top-3 text-slate-400 pointer-events-none"><IconChevronDown /></span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-5 flex flex-col items-end gap-2">
+                                        <button type="button" onClick={addChange} className={`button-press inline-flex items-center justify-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue border transition-colors ${isDraftReady ? "bg-blue-100 border-blue-300 hover:bg-blue-200" : "bg-white border-keralty-blue hover:bg-blue-50"}`}>
+                                            <span className="mr-2"><IconPlus size={18} /></span> Agregar Cambio al grupo de {formatDoctorFirstName(activeLot ? activeLot.doctor : "")}
+                                        </button>
+                                        {conflictMessage && <p role="alert" className="text-sm font-bold text-red-600 text-right">{conflictMessage}</p>}
+                                    </div>
+                                </div>
                             </div>
 
-                            <div className="mt-5 flex justify-end">
-                                <button type="button" onClick={addChange} className={`button-press inline-flex items-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue border transition-colors ${isDraftReady ? "bg-blue-100 border-blue-300 hover:bg-blue-200" : "bg-white border-keralty-blue hover:bg-blue-50"}`}>
-                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar fecha al lote de {formatDoctorFirstName(activeLot ? activeLot.doctor : "")}
-                                </button>
-                            </div>
+                            {transferPulse > 0 && (
+                                <span key={transferPulse} className="transfer-indicator" aria-hidden="true"><IconChevronDown size={20} /></span>
+                            )}
                         </div>
 
-                        <div className="border-t border-slate-200 pt-6 flex justify-end">
-                            <div className="w-full sm:w-auto sm:max-w-md">
-                                <button type="button" onClick={saveDraft} disabled={!hasDraftData || isSavingDraft} className={`draft-save-button button-press w-full inline-flex items-center justify-center px-5 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed ${draftSavedPulse ? "draft-save-button-success" : ""}`}>
-                                    {isSavingDraft ? <IconRefresh className="animate-spin mr-2" size={18} /> : <span className="mr-2"><IconSave size={18} /></span>} {isSavingDraft ? "Guardando..." : "Guardar sin enviar"}
-                                </button>
-                                <p className="mt-2 text-xs leading-relaxed text-slate-500">Guarda los cambios y lotes sin enviarlos todavía, por si necesitas añadir más cambios que aún están a la espera de confirmación</p>
-                            </div>
-                        </div>
-
-                        {changes.length > 0 && (
-                        <div className="border-t border-slate-200 pt-6">
+                        <div className="multiple-panel p-5">
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                 <div>
-                                    <h3 className="font-semibold text-keralty-blue">Verificación de lotes</h3>
-                                    <p className="text-sm text-slate-500">{lots.length} lote(s) · {changes.length} cambio(s)</p>
+                                    <div className="multiple-panel-title">
+                                        <span className="w-8 h-8 rounded-lg bg-blue-50 text-keralty-blue flex items-center justify-center"><IconFileText size={17} /></span>
+                                        <h3>Verificación de grupos</h3>
+                                    </div>
+                                    <p className="mt-2 text-sm text-slate-500">{lots.filter(lot => changes.some(change => change.lotId === lot.id)).length} grupo(s) · {changes.length} cambio(s)</p>
                                 </div>
                                 <button type="button" onClick={addNewLot} className="button-press inline-flex items-center justify-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50">
-                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar nuevo lote con otro médico
+                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar nuevo grupo con otro médico
                                 </button>
                             </div>
 
                             {changes.length === 0 ? (
-                                <div className="border border-dashed border-slate-300 rounded-lg p-5 text-sm text-slate-500 text-center bg-white">Agrega las fechas que deseas enviar para el médico seleccionado.</div>
+                                <div className="border border-dashed border-slate-300 rounded-lg p-5 text-sm text-slate-500 text-center bg-slate-50">Agrega los cambios que deseas enviar para el médico seleccionado.</div>
                             ) : (
                                 <div className="space-y-4">
                                     {lots.map((lot, lotIndex) => {
@@ -1090,22 +1193,22 @@
                                         if (lotChanges.length === 0) return null;
                                         return (
                                             <div key={lot.id} className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                                                <div className="px-4 py-3 bg-slate-100 border-b border-slate-200 flex items-center justify-between gap-3">
+                                                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
                                                     <div>
-                                                        <p className="text-xs font-bold uppercase text-slate-500">Lote {lotIndex + 1}</p>
-                                                        <p className="text-sm font-semibold text-keralty-blue">{formatDoctorFirstName(lot.doctor)}</p>
+                                                        <p className="text-xs font-bold uppercase text-slate-500">Grupo {lotIndex + 1}</p>
+                                                        <p className="text-sm font-semibold text-keralty-blue">{formatDoctorFullName(lot.doctor)}</p>
                                                     </div>
-                                                    <button type="button" onClick={() => selectLot(lot.id)} className="button-press text-xs font-medium text-keralty-blue hover:text-blue-900">Editar lote</button>
+                                                    <button type="button" onClick={() => selectLot(lot.id)} className="button-press text-xs font-medium text-keralty-blue hover:text-blue-900">Editar grupo</button>
                                                 </div>
                                                 <div className="divide-y divide-slate-100">
                                                     {AnimatePresence ? <AnimatePresence initial={false}>{lotChanges.map(change => (
                                                         <MotionView key={change.id} enabled={motionEnabled} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.2 }} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                                            <p className="text-sm text-slate-700"><strong>{change.date}</strong><span className="text-slate-400 mx-2">-</span>{change.room}<span className="text-slate-400 mx-2">-</span>{change.type}</p>
+                                                            <p className="text-sm text-slate-700"><strong>{change.date}</strong><span className="text-slate-400 mx-2">-</span>{change.room}<span className="text-slate-400 mx-2">-</span>{formatShiftLabel(change.type)}</p>
                                                             <button type="button" onClick={() => onRemove(change.id)} className="button-press text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center"><IconTrash size={16} className="mr-1" /> Eliminar</button>
                                                         </MotionView>
                                                     ))}</AnimatePresence> : lotChanges.map(change => (
                                                         <div key={change.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                                                            <p className="text-sm text-slate-700"><strong>{change.date}</strong><span className="text-slate-400 mx-2">-</span>{change.room}<span className="text-slate-400 mx-2">-</span>{change.type}</p>
+                                                            <p className="text-sm text-slate-700"><strong>{change.date}</strong><span className="text-slate-400 mx-2">-</span>{change.room}<span className="text-slate-400 mx-2">-</span>{formatShiftLabel(change.type)}</p>
                                                             <button type="button" onClick={() => onRemove(change.id)} className="button-press text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center"><IconTrash size={16} className="mr-1" /> Eliminar</button>
                                                         </div>
                                                     ))}
@@ -1115,14 +1218,19 @@
                                     })}
                                 </div>
                             )}
+                        </div>
 
-                            <div className="mt-5 flex justify-end">
-                                <button type="button" onClick={onSubmit} disabled={isSubmitting || changes.length === 0} className="button-press inline-flex items-center justify-center px-6 py-3 rounded-lg font-medium text-white bg-keralty-green hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed">
-                                    {isSubmitting ? <IconRefresh className="animate-spin mr-2" /> : <span className="mr-2"><IconSave /></span>} Guardar y Enviar todos los lotes
+                        <div className="multiple-panel p-5">
+                            <div className="w-full sm:max-w-lg ml-auto">
+                                <button type="button" onClick={saveDraft} disabled={!hasDraftData || isSavingDraft} className={`draft-save-button button-press w-full inline-flex items-center justify-center px-5 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed ${draftSavedPulse ? "draft-save-button-success" : ""}`}>
+                                    {isSavingDraft ? <IconRefresh className="animate-spin mr-2" size={18} /> : <span className="mr-2"><IconSave size={18} /></span>} {isSavingDraft ? "Guardando..." : "Guardar sin enviar"}
+                                </button>
+                                <p className="mt-2 text-xs leading-relaxed text-slate-500">Guarda los cambios y grupos sin enviarlos todavía, por si necesitas añadir más cambios que aún están a la espera de confirmación</p>
+                                <button type="button" onClick={onSubmit} disabled={isSubmitting || changes.length === 0} className="button-press mt-4 w-full inline-flex items-center justify-center px-6 py-3 rounded-lg font-medium text-white bg-keralty-green hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed">
+                                    {isSubmitting ? <IconRefresh className="animate-spin mr-2" /> : <span className="mr-2"><IconSave /></span>} Guardar y enviar todos
                                 </button>
                             </div>
                         </div>
-                        )}
                     </div>
 
                     {confirmation && (
@@ -1132,15 +1240,15 @@
                                     <IconAlert size={28} />
                                 </div>
                                 <h3 className="text-lg font-bold text-slate-800 mb-2">
-                                    {confirmation.type === "delete" ? "¿Eliminar este lote?" : "¿Salir sin guardar?"}
+                                    {confirmation.type === "delete" ? "¿Eliminar este grupo?" : "¿Salir sin guardar?"}
                                 </h3>
                                 <p className="text-sm text-slate-500 mb-6">
                                     {confirmation.type === "delete"
-                                        ? "¿Estás seguro de que deseas eliminar este lote? Los cambios incluidos se quitarán de la lista."
-                                        : "Los cambios no se han guardado. Si continúas, se perderán las selecciones y los lotes actuales."}
+                                        ? "¿Estás seguro de que deseas eliminar este grupo? Los cambios incluidos se quitarán de la lista."
+                                        : "Los cambios no se han guardado. Si continúas, se perderán las selecciones y los grupos actuales."}
                                 </p>
                                 <div className="flex gap-3">
-                                    <button type="button" onClick={() => setConfirmation(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Mantener</button>
+                                    <button type="button" onClick={() => setConfirmation(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Quedarse aquí</button>
                                     <button type="button" onClick={confirmPendingAction} className="button-press flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600">
                                         {confirmation.type === "delete" ? "Sí, eliminar" : "Salir sin guardar"}
                                     </button>
@@ -1193,8 +1301,8 @@
 
             // ANIMACIÓN DEL SPLASH SCREEN
             useEffect(() => {
-                const timer1 = setTimeout(() => setFadeSplash(true), 650);
-                const timer2 = setTimeout(() => setShowSplash(false), 900);
+                const timer1 = setTimeout(() => setFadeSplash(true), 2000);
+                const timer2 = setTimeout(() => setShowSplash(false), 2500);
                 return () => { clearTimeout(timer1); clearTimeout(timer2); };
             }, []);
 
@@ -1481,6 +1589,14 @@
 
             const handleBatchSubmit = async () => {
                 if (batchChanges.length === 0 || batchChanges.some(change => !change.person)) return;
+                const scheduleConflict = findFirstScheduleConflict(batchChanges);
+                if (scheduleConflict) {
+                    setToast({
+                        message: "Error: Existe conflicto de cruce de horarios. Ya has agregado el turno de " + formatShiftLabel(scheduleConflict.previous.type) + " para esta fecha.",
+                        type: "error"
+                    });
+                    return;
+                }
                 setIsSubmitting(true);
                 try {
                     await sendChangesToBackend(batchChanges);
@@ -1809,7 +1925,7 @@
                                     <IconAlert size={28} />
                                 </div>
                                 <h3 className="text-lg font-bold text-slate-800 mb-2">¿Cerrar sesión sin guardar?</h3>
-                                <p className="text-sm text-slate-500 mb-6">Tienes cambios múltiples o lotes que no se han guardado. Si cierras sesión ahora, esas modificaciones se perderán.</p>
+                                <p className="text-sm text-slate-500 mb-6">Tienes cambios múltiples o grupos que no se han guardado. Si cierras sesión ahora, esas modificaciones se perderán.</p>
                                 <div className="flex gap-3">
                                     <button type="button" onClick={() => setShowLogoutWarning(false)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Seguir editando</button>
                                     <button type="button" onClick={completeLogout} className="button-press flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600">Cerrar sin guardar</button>
@@ -1886,7 +2002,7 @@
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-medium">{entry.fecha}</td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">{entry.persona}</td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{entry.jornada}</td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{formatShiftLabel(entry.jornada)}</td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500"><span className="bg-slate-100 px-2 py-1 rounded font-medium">{entry.sala}</span></td>
                                                             <td className="px-6 py-4 whitespace-nowrap"><span className="px-2 py-1 text-xs font-semibold rounded-full bg-keralty-green text-white">{entry.estado}</span></td>
                                                         </tr>
@@ -1926,7 +2042,7 @@
                                                             </div>
                                                             <p className="text-sm font-semibold text-keralty-blue mb-2">{entry.persona}</p>
                                                             <div className="flex flex-col space-y-1.5">
-                                                                <p className="text-xs text-slate-600 flex items-center"><span className="text-slate-400 mr-2"><IconClock size={14} /></span> {entry.jornada}</p>
+                                                                <p className="text-xs text-slate-600 flex items-center"><span className="text-slate-400 mr-2"><IconClock size={14} /></span> {formatShiftLabel(entry.jornada)}</p>
                                                                 <p className="text-xs text-slate-600 flex items-center"><span className="text-slate-400 mr-2"><IconLayout size={14} /></span> {entry.sala}</p>
                                                             </div>
                                                         </div>
