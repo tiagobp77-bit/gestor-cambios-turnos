@@ -734,12 +734,10 @@
                             </label>
                             {!hasCompleteBase && <p className="mt-2 ml-7 text-xs text-amber-700">Completa primero médico, jornada, fecha y sala para habilitar esta opción.</p>}
                             {hasCompleteBase && repeatBlockedByWeekend && <p className="mt-2 ml-7 text-xs text-amber-700">Esta opción no está disponible para jornadas de fin de semana porque la sala puede cambiar cada día.</p>}
-                            <details className="mt-2 ml-7 text-xs text-slate-500">
-                                <summary className="cursor-pointer font-semibold text-keralty-blue">¿Qué es esto?</summary>
-                                <p className="mt-2 leading-relaxed">Esta opción te permite elegir múltiples días rápidamente sin necesidad de hacer los cambios uno por uno; la misma persona, el mismo tipo de jornada y la misma sala se conservarán al repetir fechas. Si quieres hacer cambios múltiples con diferentes salas y diferentes médicos, usa la opción de Cambios Múltiples en el menú anterior.</p>
-                            </details>
                             {shift.repeatToOtherDates && (
-                                <div key={"additional-" + validationCycle} data-validation-error={errors.additionalDates ? "true" : undefined} className={`mt-4 p-4 bg-blue-50/60 border border-blue-100 rounded-lg ${errorClass("additionalDates")}`}>
+                                <>
+                                    <p className="mt-2 ml-7 text-xs leading-relaxed text-slate-500">Esta opción te permite elegir múltiples días rápidamente sin necesidad de hacer los cambios uno por uno; la misma persona, el mismo tipo de jornada y la misma sala se conservarán al repetir fechas. Si quieres hacer cambios múltiples con diferentes salas y diferentes médicos, usa la opción de Cambios Múltiples en el menú anterior.</p>
+                                    <div key={"additional-" + validationCycle} data-validation-error={errors.additionalDates ? "true" : undefined} className={`mt-4 p-4 bg-blue-50/60 border border-blue-100 rounded-lg ${errorClass("additionalDates")}`}>
                                     <label className="text-sm font-medium text-keralty-blue block mb-2">Fechas adicionales</label>
                                     <MultiDateCalendar
                                         selectedDates={additionalDates}
@@ -753,7 +751,8 @@
                                     />
                                     {repeatMustStayInWeek && <p className="mt-2 text-xs text-slate-500">Solo puedes elegir días hábiles de la misma semana de la fecha inicial.</p>}
                                     {errors.additionalDates && <p className="mt-2 text-xs font-semibold text-red-600">{errors.additionalDates}</p>}
-                                </div>
+                                    </div>
+                                </>
                             )}
                         </div>
                     </div>
@@ -786,7 +785,7 @@
             </section>
         );
 
-        const MultipleChangesForm = ({ doctorsList, isLoadingDoctors, changes, onAdd, onRemove, onRemoveLot, onSubmit, onRestoreDraft, onDirtyChange, ownerEmail, ownerName, isSubmitting, motionEnabled, onBack, setToast, resetKey }) => {
+        const MultipleChangesForm = ({ doctorsList, isLoadingDoctors, changes, onAdd, onRemove, onRemoveLot, onClearAll, onSubmit, onRestoreDraft, onDirtyChange, ownerEmail, ownerName, isSubmitting, motionEnabled, onBack, setToast, resetKey }) => {
             const createLot = () => ({ id: "lot-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7), doctor: "" });
             const initialLotRef = useRef(null);
             if (!initialLotRef.current) initialLotRef.current = createLot();
@@ -800,6 +799,9 @@
             const [draftRevision, setDraftRevision] = useState(0);
             const [isLoadingDraft, setIsLoadingDraft] = useState(true);
             const [isSavingDraft, setIsSavingDraft] = useState(false);
+            const [isDeletingDraft, setIsDeletingDraft] = useState(false);
+            const [editingLotId, setEditingLotId] = useState(null);
+            const [isFormCollapsed, setIsFormCollapsed] = useState(false);
             const [draftSavedPulse, setDraftSavedPulse] = useState(false);
             const [conflictMessage, setConflictMessage] = useState("");
             const [transferPulse, setTransferPulse] = useState(0);
@@ -812,6 +814,7 @@
             const hydrationCompleteRef = useRef(false);
             const previousResetKeyRef = useRef(resetKey);
             const activeLot = lots.find(lot => lot.id === activeLotId) || lots[0];
+            const isEditingCurrentLot = Boolean(activeLot && editingLotId === activeLot.id);
             const activeChanges = changes.filter(change => change.lotId === activeLotId);
             const sameDoctorChanges = changes.filter(change => activeLot && change.person === activeLot.doctor);
             const isRoomNotRequired = isRoomNotRequiredForType(draft.type);
@@ -822,6 +825,14 @@
                 date: draft.date,
                 type: draft.type
             }, sameDoctorChanges) : null;
+            const globalRoomCollision = activeLot && activeLot.doctor && draft.date && draft.type && draft.room && !isRoomNotRequired
+                ? changes.find(change => (
+                    change.person !== activeLot.doctor &&
+                    change.date === draft.date &&
+                    change.type === draft.type &&
+                    change.room === draft.room
+                ))
+                : null;
             const draftRoomRestriction = !isRoomNotRequired && draft.date && draft.room
                 ? getRoomRestriction(draft.room, draft.date, activeLot ? activeLot.doctor : "", doctorsList)
                 : "";
@@ -834,7 +845,8 @@
                 allowedDays.includes(draftDayType) &&
                 !draftRoomRestriction &&
                 (isRoomNotRequired || isRoomAvailableOnDate(draft.room, draft.date)) &&
-                !scheduleConflict
+                !scheduleConflict &&
+                !globalRoomCollision
             );
             const hasInProgressChange = Boolean(draft.type || draft.date || draft.room);
             const groupsAreComplete = changes.length > 0 && lots.every(lot => (
@@ -920,6 +932,8 @@
                         savedSnapshotRef.current = JSON.stringify(normalized);
                         setLots(restoredLots);
                         setActiveLotId(restoredActiveLotId);
+                        setEditingLotId(null);
+                        setIsFormCollapsed(false);
                         setDraft(restoredDraft);
                         onRestoreDraft(restoredChanges);
                         setToast({
@@ -947,6 +961,8 @@
                 const nextLot = createLot();
                 setLots([nextLot]);
                 setActiveLotId(nextLot.id);
+                setEditingLotId(null);
+                setIsFormCollapsed(false);
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
                 setConfirmation(null);
@@ -990,6 +1006,20 @@
 
             const editLot = (lotId) => {
                 selectLot(lotId);
+                setEditingLotId(lotId);
+                setIsFormCollapsed(false);
+                window.setTimeout(() => {
+                    if (formPanelRef.current) formPanelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+                }, 50);
+            };
+
+            const leaveEditMode = () => {
+                setEditingLotId(null);
+                setDraft({ date: "", type: "", room: "" });
+                setShowCalendarWarning(false);
+                setConflictMessage("");
+                setFieldErrors({});
+                setIsFormCollapsed(true);
                 window.setTimeout(() => {
                     if (formPanelRef.current) formPanelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
                 }, 50);
@@ -1017,6 +1047,12 @@
                 const roomRestriction = !isRoomNotRequired ? getRoomRestriction(draft.room, draft.date, activeLot.doctor, doctorsList) : "";
                 if (roomRestriction || (!isRoomNotRequired && !isRoomAvailableOnDate(draft.room, draft.date))) {
                     setToast({ message: roomRestriction || "La sala no está disponible para la fecha seleccionada.", type: "error" });
+                    return;
+                }
+                if (globalRoomCollision) {
+                    const message = "Error de colisión: Esta sala ya fue asignada al " + formatDoctorFullName(globalRoomCollision.person) + " en esta misma fecha y jornada.";
+                    setConflictMessage(message);
+                    setToast({ message, type: "error" });
                     return;
                 }
                 if (scheduleConflict) {
@@ -1056,6 +1092,8 @@
                 const nextLot = createLot();
                 setLots(current => [nextLot, ...current]);
                 setActiveLotId(nextLot.id);
+                setEditingLotId(null);
+                setIsFormCollapsed(false);
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
                 setConflictMessage("");
@@ -1135,6 +1173,7 @@
 
             const removeLot = (lotId) => {
                 onRemoveLot(lotId);
+                if (editingLotId === lotId) setEditingLotId(null);
                 if (lots.length === 1) {
                     const nextLot = createLot();
                     setLots([nextLot]);
@@ -1158,11 +1197,43 @@
                 const nextLot = createLot();
                 setLots([nextLot]);
                 setActiveLotId(nextLot.id);
+                setEditingLotId(null);
+                setIsFormCollapsed(false);
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
                 setConflictMessage("");
                 setConfirmation(null);
                 onBack();
+            };
+
+            const deleteAllDraft = async () => {
+                if (isDeletingDraft) return;
+                setIsDeletingDraft(true);
+                try {
+                    if (ownerEmail) {
+                        const result = await backendPost({ action: "deleteDraft", email: ownerEmail });
+                        if (result.status && result.status !== "success") throw new Error(result.message || "No se pudo borrar");
+                    }
+                    onClearAll();
+                    const nextLot = createLot();
+                    setLots([nextLot]);
+                    setActiveLotId(nextLot.id);
+                    setEditingLotId(null);
+                    setIsFormCollapsed(false);
+                    setDraft({ date: "", type: "", room: "" });
+                    setShowCalendarWarning(false);
+                    setConflictMessage("");
+                    setFieldErrors({});
+                    savedSnapshotRef.current = "";
+                    window.localStorage.removeItem(getMultipleDraftStorageKey({ email: ownerEmail }));
+                    onDirtyChange(false);
+                    setConfirmation(null);
+                    setToast({ message: "Borrador eliminado correctamente.", type: "success" });
+                } catch (error) {
+                    setToast({ message: "No se pudo borrar el borrador. Inténtalo nuevamente.", type: "error" });
+                } finally {
+                    setIsDeletingDraft(false);
+                }
             };
 
             const requestBack = () => {
@@ -1183,6 +1254,10 @@
                 if (confirmation.type === "send") {
                     setConfirmation(null);
                     onSubmit();
+                    return;
+                }
+                if (confirmation.type === "deleteAll") {
+                    deleteAllDraft();
                     return;
                 }
                 resetAndLeave();
@@ -1212,11 +1287,20 @@
 
                     <div className="mt-5 space-y-5">
                         <div ref={formPanelRef} className="multiple-panel p-5 relative scroll-mt-24">
-                            <div className="multiple-panel-title mb-5">
-                                <span className="w-8 h-8 rounded-lg bg-green-50 text-keralty-green flex items-center justify-center"><IconPlus size={17} /></span>
-                                <h3>Configurar cambio</h3>
+                            <div className="mb-5 flex items-center justify-between gap-3">
+                                <div className="multiple-panel-title">
+                                    <span className="w-8 h-8 rounded-lg bg-green-50 text-keralty-green flex items-center justify-center"><IconPlus size={17} /></span>
+                                    <h3>Configurar cambio</h3>
+                                </div>
+                                {isFormCollapsed && (
+                                    <button type="button" onClick={() => setIsFormCollapsed(false)} className="button-press inline-flex items-center justify-center px-3 py-2 rounded-lg bg-blue-50 text-keralty-blue text-xs font-semibold hover:bg-blue-100">
+                                        Abrir formulario
+                                    </button>
+                                )}
                             </div>
 
+                            {!isFormCollapsed && (
+                                <>
                             <div className="space-y-6">
                                 <div key={"multiple-person-" + validationCycle} data-validation-error={fieldErrors.person ? "true" : undefined} className={`max-w-xl rounded-lg ${fieldErrors.person ? "field-error-shake" : ""}`}>
                                     <label className="text-sm font-medium text-slate-700 block mb-2">1. Médico asignado para este grupo</label>
@@ -1295,7 +1379,12 @@
                                         </div>
                                     </div>
 
-                                    <div data-validation-error={fieldErrors.collection ? "true" : undefined} className={`mt-5 flex flex-col items-end gap-2 rounded-lg ${fieldErrors.collection ? "field-error-shake" : ""}`}>
+                                    <div data-validation-error={fieldErrors.collection ? "true" : undefined} className={`mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 rounded-lg ${fieldErrors.collection ? "field-error-shake" : ""}`}>
+                                        {isEditingCurrentLot && (
+                                            <button type="button" onClick={leaveEditMode} className="button-press inline-flex items-center justify-center px-4 py-2.5 rounded-lg font-medium bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200">
+                                                Dejar de editar
+                                            </button>
+                                        )}
                                         <button type="button" onClick={addChange} className={`button-press inline-flex items-center justify-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue border transition-colors ${isDraftReady ? "bg-blue-100 border-blue-300 hover:bg-blue-200" : "bg-white border-keralty-blue hover:bg-blue-50"}`}>
                                             <span className="mr-2"><IconPlus size={18} /></span> Agregar Cambio al grupo de {formatDoctorFirstName(activeLot ? activeLot.doctor : "")}
                                         </button>
@@ -1307,6 +1396,8 @@
 
                             {transferPulse > 0 && (
                                 <span key={transferPulse} className="transfer-indicator" aria-hidden="true"><IconChevronDown size={20} /></span>
+                            )}
+                                </>
                             )}
                         </div>
 
@@ -1331,7 +1422,7 @@
                                         const lotChanges = changes.filter(change => change.lotId === lot.id).sort((first, second) => first.date.localeCompare(second.date));
                                         if (lotChanges.length === 0) return null;
                                         return (
-                                            <div key={lot.id} className={`bg-white border rounded-lg overflow-hidden ${lot.id === activeLotId ? "border-keralty-blue shadow-sm" : "border-slate-200"}`}>
+                                            <div key={lot.id} className={`bg-white border rounded-lg overflow-hidden transition-all ${editingLotId === lot.id ? "border-keralty-green ring-4 ring-green-100 shadow-lg" : (lot.id === activeLotId ? "border-keralty-blue shadow-sm" : "border-slate-200")}`}>
                                                 <div role="button" tabIndex="0" onClick={() => editLot(lot.id)} onKeyDown={(event) => {
                                                     if (event.key === "Enter" || event.key === " ") {
                                                         event.preventDefault();
@@ -1343,8 +1434,8 @@
                                                         <p className="text-sm font-semibold text-white">{formatDoctorFullName(lot.doctor)}</p>
                                                     </div>
                                                     <div className="flex items-center gap-2">
-                                                        <button type="button" onClick={(event) => { event.stopPropagation(); editLot(lot.id); }} className="button-press inline-flex items-center justify-center px-3 py-2 rounded-lg bg-white text-keralty-blue text-xs font-semibold shadow-sm hover:bg-blue-50">
-                                                            <IconFileText size={15} className="mr-1.5" /> Editar grupo
+                                                        <button type="button" onClick={(event) => { event.stopPropagation(); editingLotId === lot.id ? leaveEditMode() : editLot(lot.id); }} className={`button-press inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold shadow-sm ${editingLotId === lot.id ? "bg-amber-100 text-amber-800 hover:bg-amber-200" : "bg-white text-keralty-blue hover:bg-blue-50"}`}>
+                                                            <IconFileText size={15} className="mr-1.5" /> {editingLotId === lot.id ? "Dejar de editar" : "Editar grupo"}
                                                         </button>
                                                         <button type="button" onClick={(event) => { event.stopPropagation(); setConfirmation({ type: "delete", lotId: lot.id }); }} className="button-press inline-flex items-center justify-center px-3 py-2 rounded-lg bg-red-50 text-red-600 text-xs font-semibold shadow-sm hover:bg-red-100">
                                                             <IconTrash size={15} className="mr-1.5" /> Eliminar
@@ -1378,6 +1469,11 @@
                                     {isSavingDraft ? <IconRefresh className="animate-spin mr-2" size={18} /> : <span className="mr-2"><IconSave size={18} /></span>} {isSavingDraft ? "Guardando..." : "Guardar borrador sin enviar"}
                                 </button>
                                 <p className="mt-2 text-xs leading-relaxed text-slate-500">Guarda los cambios y grupos sin enviarlos todavía, por si necesitas añadir más cambios que aún están a la espera de confirmación</p>
+                                {hasDraftData && (
+                                    <button type="button" onClick={() => setConfirmation({ type: "deleteAll" })} disabled={isDeletingDraft} className="button-press mt-4 w-full inline-flex items-center justify-center px-4 py-2.5 rounded-lg font-medium text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 disabled:opacity-60">
+                                        <IconTrash size={18} className="mr-2" /> Borrar todo el borrador
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -1397,9 +1493,11 @@
                                     {confirmation.type === "send" ? <IconSave size={28} /> : <IconAlert size={28} />}
                                 </div>
                                 <h3 className="text-lg font-bold text-slate-800 mb-2">
-                                    {confirmation.type === "delete"
-                                        ? "¿Eliminar este grupo?"
-                                        : (confirmation.type === "send" ? "Confirma el envío" : "¿Salir sin guardar?")}
+                                    {confirmation.type === "deleteAll"
+                                        ? "¿Borrar todo el borrador?"
+                                        : (confirmation.type === "delete"
+                                            ? "¿Eliminar este grupo?"
+                                            : (confirmation.type === "send" ? "Confirma el envío" : "¿Salir sin guardar?"))}
                                 </h3>
                                 {confirmation.type === "send" ? (
                                     <div className="mb-6">
@@ -1408,9 +1506,11 @@
                                     </div>
                                 ) : (
                                     <p className="text-sm text-slate-500 mb-6">
-                                        {confirmation.type === "delete"
-                                            ? "¿Estás seguro de que deseas eliminar este grupo? Los cambios incluidos se quitarán de la lista."
-                                            : "Los cambios no se han guardado. Si continúas, se perderán las selecciones y los grupos actuales."}
+                                        {confirmation.type === "deleteAll"
+                                            ? "Se eliminarán todos los grupos y cambios del borrador actual. Esta acción no se puede deshacer."
+                                            : (confirmation.type === "delete"
+                                                ? "¿Estás seguro de que deseas eliminar este grupo? Los cambios incluidos se quitarán de la lista."
+                                                : "Los cambios no se han guardado. Si continúas, se perderán las selecciones y los grupos actuales.")}
                                     </p>
                                 )}
                                 {confirmation.type === "send" ? (
@@ -1422,13 +1522,13 @@
                                     <div className="flex flex-col gap-3">
                                         {confirmation.type === "back" && (
                                             <button type="button" onClick={saveDraftAndLeave} disabled={isSavingDraft} className="button-press w-full py-2.5 px-3 bg-keralty-green text-white rounded-lg font-medium hover:opacity-90 disabled:opacity-60">
-                                                {isSavingDraft ? "Guardando..." : "Guardar borradores sin enviar todavía y luego salir"}
+                                                {isSavingDraft ? "Guardando..." : "Guardar Borrador y salir"}
                                             </button>
                                         )}
                                         <div className="flex gap-3">
-                                            <button type="button" onClick={() => setConfirmation(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Quedarse aquí</button>
-                                            <button type="button" onClick={confirmPendingAction} className="button-press flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600">
-                                                {confirmation.type === "delete" ? "Sí, eliminar" : "Salir sin guardar"}
+                                            <button type="button" onClick={() => setConfirmation(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">{confirmation.type === "deleteAll" ? "Cancelar" : "Quedarse aquí"}</button>
+                                            <button type="button" onClick={confirmPendingAction} disabled={isDeletingDraft} className="button-press flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 disabled:opacity-60">
+                                                {confirmation.type === "deleteAll" ? (isDeletingDraft ? "Borrando..." : "Confirmar y borrar") : (confirmation.type === "delete" ? "Sí, eliminar" : "Salir sin guardar")}
                                             </button>
                                         </div>
                                     </div>
@@ -1999,7 +2099,6 @@
                 setShiftFieldErrors({});
                 setValidationError("");
                 setIndividualSubmitSummary({
-                    groups: shifts.length,
                     changes: individualShifts
                 });
             };
@@ -2096,6 +2195,7 @@
                         onAdd={handleBatchAdd}
                         onRemove={(id) => setBatchChanges(current => current.filter(change => change.id !== id))}
                         onRemoveLot={(lotId) => setBatchChanges(current => current.filter(change => change.lotId !== lotId))}
+                        onClearAll={() => setBatchChanges([])}
                         onSubmit={handleBatchSubmit}
                         onRestoreDraft={handleRestoreBatchDraft}
                         onDirtyChange={setHasUnsavedMultipleChanges}
@@ -2281,7 +2381,7 @@
                                 </div>
                                 <h3 className="text-lg font-bold text-slate-800 mb-2">Confirma el envío</h3>
                                 <p className="text-sm text-slate-500">Se procesarán:</p>
-                                <p className="mt-3 mb-6 text-lg font-bold text-keralty-blue">{individualSubmitSummary.groups} grupo(s) · {individualSubmitSummary.changes.length} cambio(s)</p>
+                                <p className="mt-3 mb-6 text-lg font-bold text-keralty-blue">{individualSubmitSummary.changes.length} cambio(s)</p>
                                 <div className="flex flex-col-reverse sm:flex-row gap-3">
                                     <button type="button" onClick={() => setIndividualSubmitSummary(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Seguir editando</button>
                                     <button type="button" onClick={confirmIndividualSubmit} className="button-press flex-1 py-2.5 bg-keralty-green text-white rounded-lg font-medium hover:opacity-90">Confirmar y enviar</button>
