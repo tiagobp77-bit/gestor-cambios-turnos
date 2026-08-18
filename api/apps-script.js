@@ -1,11 +1,21 @@
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbygKJNFP05Ck8OcvfoBTHYzyvV0oNFQoONZMAu5ZlXuEYUcGgkUVAmepWtYSCgrcf0WCw/exec";
+const STAGING_ORIGIN = "https://gestor-cambios-turnos-staging.vercel.app";
 
 module.exports = async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Vary", "Origin");
+  if (req.headers.origin === STAGING_ORIGIN) {
+    res.setHeader("Access-Control-Allow-Origin", STAGING_ORIGIN);
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept");
+  res.setHeader("Access-Control-Max-Age", "600");
+
+  if (req.method === "OPTIONS") return res.status(204).end();
 
   if (req.method !== "GET" && req.method !== "POST") {
-    res.setHeader("Allow", "GET, POST");
+    res.setHeader("Allow", "GET, POST, OPTIONS");
     return res.status(405).json({ status: "error", message: "Método no permitido" });
   }
 
