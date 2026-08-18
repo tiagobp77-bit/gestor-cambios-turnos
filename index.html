@@ -239,6 +239,29 @@
             return values.year + "-" + values.month + "-" + values.day;
         };
 
+        const getCalendarWeekStart = (dateString) => {
+            if (!dateString) return "";
+            const date = new Date(dateString + "T12:00:00");
+            const mondayOffset = (date.getDay() + 6) % 7;
+            date.setDate(date.getDate() - mondayOffset);
+            return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
+        };
+
+        const isSameCalendarWeek = (firstDate, secondDate) => (
+            Boolean(firstDate && secondDate) && getCalendarWeekStart(firstDate) === getCalendarWeekStart(secondDate)
+        );
+
+        const scrollToFirstValidationError = (rootElement) => {
+            window.setTimeout(() => {
+                const scope = rootElement || document;
+                const field = scope.querySelector('[data-validation-error="true"]');
+                if (!field) return;
+                field.scrollIntoView({ behavior: "smooth", block: "center" });
+                const control = field.querySelector("select, input, textarea, button");
+                if (control && !control.disabled) window.setTimeout(() => control.focus({ preventScroll: true }), 350);
+            }, 80);
+        };
+
         const getShiftFieldErrors = (shift) => {
             const errors = {};
             if (!shift.person) errors.person = "Debes seleccionar el médico primero";
@@ -601,6 +624,24 @@
             const additionalDates = shift.additionalDates || [];
             const additionalDatesKey = additionalDates.join("|");
             const errorClass = (field) => errors[field] ? "field-error field-error-shake" : "";
+            const visibleShiftType = formatShiftLabel(shift.type);
+            const sameWeekRepeatTypes = ["Entre semana AM", "Entre semana PM", "Extendido 1", "Extendido 2", "Extendido 3"];
+            const repeatMustStayInWeek = sameWeekRepeatTypes.includes(visibleShiftType);
+            const repeatBlockedByWeekend = shift.type.includes("Fin de semana");
+            const roomRestriction = shift.room && !isRoomNotRequired
+                ? getRoomRestriction(shift.room, shift.date, shift.person, doctorsList)
+                : "";
+            const hasCompleteBase = Boolean(
+                shift.person &&
+                shift.type &&
+                shift.date &&
+                (isRoomNotRequired || shift.room) &&
+                allowedDays.includes(currentDayType) &&
+                !roomRestriction &&
+                (isRoomNotRequired || isRoomAvailableOnDate(shift.room, shift.date))
+            );
+            const canEnableRepeat = hasCompleteBase && !repeatBlockedByWeekend;
+            const repeatAllowedDays = repeatMustStayInWeek ? ["habil"] : allowedDays;
 
             useEffect(() => {
                 if (isRoomNotRequired && shift.room !== "") updateShift(shift.id, "room", "");
@@ -611,11 +652,19 @@
             useEffect(() => {
                 const validAdditionalDates = additionalDates.filter(date => (
                     date !== shift.date &&
-                    allowedDays.includes(getDayType(date)) &&
+                    repeatAllowedDays.includes(getDayType(date)) &&
+                    (!repeatMustStayInWeek || isSameCalendarWeek(date, shift.date)) &&
                     (isRoomNotRequired || !shift.room || isRoomAvailableOnDate(shift.room, date))
                 ));
                 if (validAdditionalDates.length !== additionalDates.length) updateShift(shift.id, "additionalDates", validAdditionalDates);
             }, [shift.date, shift.type, shift.room, isRoomNotRequired, additionalDatesKey]);
+
+            useEffect(() => {
+                if (!canEnableRepeat && (shift.repeatToOtherDates || additionalDates.length > 0)) {
+                    updateShift(shift.id, "repeatToOtherDates", false);
+                    updateShift(shift.id, "additionalDates", []);
+                }
+            }, [canEnableRepeat]);
 
             return (
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 mb-4 transition-all hover:shadow-md">
@@ -624,7 +673,7 @@
                         {index > 0 && <button type="button" onClick={() => removeShift(shift.id)} className="text-red-400 hover:text-red-600 p-1 rounded-full hover:bg-red-50 transition-colors"><IconTrash /></button>}
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <div className="space-y-2">
+                        <div className="space-y-2" data-validation-error={errors.person ? "true" : undefined}>
                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconUser /></span> Persona Asignada</label>
                             <div className="relative">
                                 <select key={"person-" + validationCycle} value={shift.person} onChange={(event) => updateShift(shift.id, "person", event.target.value)} className={`w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 ${errorClass("person")}`}>
@@ -636,7 +685,7 @@
                             {errors.person && <p className="text-xs font-semibold text-red-600">{errors.person}</p>}
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="space-y-2" data-validation-error={errors.type ? "true" : undefined}>
                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconClock /></span> Tipo de Jornada</label>
                             <div className="relative">
                                 <select key={"type-" + validationCycle} value={shift.type} onChange={(event) => updateShift(shift.id, "type", event.target.value)} className={`w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 ${errorClass("type")}`}>
@@ -648,7 +697,7 @@
                             {errors.type && <p className="text-xs font-semibold text-red-600">{errors.type}</p>}
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="space-y-2" data-validation-error={errors.date ? "true" : undefined}>
                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconCalendar /></span> Fecha del Turno</label>
                             <div key={"date-" + validationCycle} className={`rounded-lg ${errorClass("date")}`}>
                                 <CustomCalendar value={shift.date} onChange={(date) => updateShift(shift.id, "date", date)} allowedTypes={allowedDays} />
@@ -656,7 +705,7 @@
                             {errors.date && <p className="text-xs font-semibold text-red-600">{errors.date}</p>}
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="space-y-2" data-validation-error={errors.room ? "true" : undefined}>
                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconLayout /></span> Sala Asignada</label>
                             <div className="relative">
                                 <select key={"room-" + validationCycle} value={shift.room} onChange={(event) => updateShift(shift.id, "room", event.target.value)} disabled={isRoomNotRequired} className={`w-full pl-3 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 ${isRoomNotRequired ? "opacity-50 cursor-not-allowed bg-slate-200" : ""} ${errorClass("room")}`}>
@@ -676,26 +725,33 @@
                         </div>
 
                         <div className="md:col-span-2 lg:col-span-4 border-t border-slate-100 pt-5">
-                            <label className="flex items-start gap-3 cursor-pointer text-sm font-medium text-slate-700">
-                                <input type="checkbox" checked={Boolean(shift.repeatToOtherDates)} onChange={(event) => {
+                            <label className={`flex items-start gap-3 text-sm font-medium ${canEnableRepeat ? "cursor-pointer text-slate-700" : "cursor-not-allowed text-slate-400"}`}>
+                                <input type="checkbox" checked={Boolean(shift.repeatToOtherDates)} disabled={!canEnableRepeat} onChange={(event) => {
                                     updateShift(shift.id, "repeatToOtherDates", event.target.checked);
                                     if (!event.target.checked) updateShift(shift.id, "additionalDates", []);
-                                }} className="mt-0.5 w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue" />
+                                }} className="mt-0.5 w-4 h-4 text-keralty-blue rounded border-slate-300 focus:ring-keralty-blue disabled:opacity-40 disabled:cursor-not-allowed" />
                                 <span>¿Quieres repetir este cambio en otras fechas?</span>
                             </label>
+                            {!hasCompleteBase && <p className="mt-2 ml-7 text-xs text-amber-700">Completa primero médico, jornada, fecha y sala para habilitar esta opción.</p>}
+                            {hasCompleteBase && repeatBlockedByWeekend && <p className="mt-2 ml-7 text-xs text-amber-700">Esta opción no está disponible para jornadas de fin de semana porque la sala puede cambiar cada día.</p>}
                             <details className="mt-2 ml-7 text-xs text-slate-500">
                                 <summary className="cursor-pointer font-semibold text-keralty-blue">¿Qué es esto?</summary>
-                                <p className="mt-2 leading-relaxed">La persona, jornada y la misma sala se conservarán. Usa esta opción cuando, por ejemplo, un compañero va a hacer toda tu semana completa y es la misma sala, o cuando un compañero va a realizar todas tus noches del mes. Esta opción te permite elegir rápidamente las fechas sin necesidad de hacer los cambios uno por uno. Ten cuidado de no equivocarte con las fechas, ya que se repite la misma sala; si requieres hacer cambios múltiples con diferentes salas y diferentes médicos, usa la opción de Cambios Múltiples en el menú anterior.</p>
+                                <p className="mt-2 leading-relaxed">Esta opción te permite elegir múltiples días rápidamente sin necesidad de hacer los cambios uno por uno; la misma persona, el mismo tipo de jornada y la misma sala se conservarán al repetir fechas. Si quieres hacer cambios múltiples con diferentes salas y diferentes médicos, usa la opción de Cambios Múltiples en el menú anterior.</p>
                             </details>
                             {shift.repeatToOtherDates && (
-                                <div key={"additional-" + validationCycle} className={`mt-4 p-4 bg-blue-50/60 border border-blue-100 rounded-lg ${errorClass("additionalDates")}`}>
+                                <div key={"additional-" + validationCycle} data-validation-error={errors.additionalDates ? "true" : undefined} className={`mt-4 p-4 bg-blue-50/60 border border-blue-100 rounded-lg ${errorClass("additionalDates")}`}>
                                     <label className="text-sm font-medium text-keralty-blue block mb-2">Fechas adicionales</label>
                                     <MultiDateCalendar
                                         selectedDates={additionalDates}
                                         onChange={(dates) => updateShift(shift.id, "additionalDates", dates)}
-                                        allowedTypes={allowedDays}
-                                        isDateAllowed={(date) => date !== shift.date && (isRoomNotRequired || !shift.room || isRoomAvailableOnDate(shift.room, date))}
+                                        allowedTypes={repeatAllowedDays}
+                                        isDateAllowed={(date) => (
+                                            date !== shift.date &&
+                                            (!repeatMustStayInWeek || isSameCalendarWeek(date, shift.date)) &&
+                                            (isRoomNotRequired || !shift.room || isRoomAvailableOnDate(shift.room, date))
+                                        )}
                                     />
+                                    {repeatMustStayInWeek && <p className="mt-2 text-xs text-slate-500">Solo puedes elegir días hábiles de la misma semana de la fecha inicial.</p>}
                                     {errors.additionalDates && <p className="mt-2 text-xs font-semibold text-red-600">{errors.additionalDates}</p>}
                                 </div>
                             )}
@@ -750,6 +806,7 @@
             const [fieldErrors, setFieldErrors] = useState({});
             const [validationCycle, setValidationCycle] = useState(0);
             const formTopRef = useRef(null);
+            const formPanelRef = useRef(null);
             const doctorSelectRef = useRef(null);
             const savedSnapshotRef = useRef("");
             const hydrationCompleteRef = useRef(false);
@@ -779,13 +836,14 @@
                 (isRoomNotRequired || isRoomAvailableOnDate(draft.room, draft.date)) &&
                 !scheduleConflict
             );
-            const hasInProgressChange = Boolean(draft.date || draft.room);
+            const hasInProgressChange = Boolean(draft.type || draft.date || draft.room);
             const groupsAreComplete = changes.length > 0 && lots.every(lot => (
                 Boolean(lot.doctor) && changes.some(change => change.lotId === lot.id)
             ));
             const isMultipleComplete = groupsAreComplete && (!hasInProgressChange || isDraftReady);
             const currentSnapshot = JSON.stringify({ lots, activeLotId, draft, changes });
             const hasUnsavedData = hasDraftData && currentSnapshot !== savedSnapshotRef.current;
+            const isDraftSaved = Boolean(savedSnapshotRef.current) && !hasUnsavedData && changes.length > 0;
             const getGroupSignature = (lot, sourceChanges) => JSON.stringify({
                 doctor: lot.doctor,
                 changes: sourceChanges
@@ -907,6 +965,14 @@
             }, [isRoomNotRequired, draft.room]);
 
             const updateDoctor = (name) => {
+                const duplicateLot = name && lots.find(lot => lot.id !== activeLotId && lot.doctor === name);
+                if (duplicateLot) {
+                    setToast({
+                        message: "Ya existe un grupo con este médico. Para agregar más cambios a este médico, toca su grupo en la lista de abajo y edítalo",
+                        type: "warning"
+                    });
+                    return;
+                }
                 setLots(current => current.map(lot => lot.id === activeLotId ? { ...lot, doctor: name } : lot));
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
@@ -922,6 +988,13 @@
                 setFieldErrors({});
             };
 
+            const editLot = (lotId) => {
+                selectLot(lotId);
+                window.setTimeout(() => {
+                    if (formPanelRef.current) formPanelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+                }, 50);
+            };
+
             const showMultipleErrors = () => {
                 const errors = getMultipleFieldErrors(activeLot, draft);
                 setFieldErrors(errors);
@@ -929,6 +1002,7 @@
                 if (Object.keys(errors).length > 0) {
                     setShowCalendarWarning(Boolean(errors.type));
                     setToast({ message: "Completa todos los campos obligatorios.", type: "error" });
+                    scrollToFirstValidationError(formPanelRef.current);
                     return false;
                 }
                 return true;
@@ -982,7 +1056,7 @@
                 if (window.matchMedia && window.matchMedia("(max-width: 767px)").matches) {
                     setHighlightDoctor(true);
                     window.setTimeout(() => {
-                        if (formTopRef.current) formTopRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+                        if (formPanelRef.current) formPanelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
                         window.setTimeout(() => {
                             if (doctorSelectRef.current) doctorSelectRef.current.focus({ preventScroll: true });
                         }, 350);
@@ -995,13 +1069,15 @@
                 const incompleteLot = lots.find(lot => !lot.doctor || !changes.some(change => change.lotId === lot.id));
                 if (incompleteLot) {
                     setActiveLotId(incompleteLot.id);
-                    const nextErrors = {
-                        ...(!incompleteLot.doctor ? { person: "Debes seleccionar el médico primero" } : {}),
-                        ...(!changes.some(change => change.lotId === incompleteLot.id) ? { date: "Debes agregar al menos un cambio completo a este grupo" } : {})
-                    };
+                    const incompleteDraft = incompleteLot.id === activeLotId ? draft : { date: "", type: "", room: "" };
+                    const nextErrors = getMultipleFieldErrors(incompleteLot, incompleteDraft);
+                    if (incompleteLot.doctor && Object.keys(nextErrors).length === 0) {
+                        nextErrors.collection = "Debes agregar este cambio al grupo antes de guardar o enviar";
+                    }
                     setFieldErrors(nextErrors);
                     setValidationCycle(current => current + 1);
                     setToast({ message: "Cada grupo debe tener un médico y al menos un cambio completo.", type: "error" });
+                    scrollToFirstValidationError(formPanelRef.current);
                     return false;
                 }
                 if (hasInProgressChange && !showMultipleErrors()) return false;
@@ -1046,14 +1122,23 @@
 
             const submitAll = () => {
                 if (!validateMultipleCollection()) return;
-                onSubmit();
+                const completedGroups = lots.filter(lot => changes.some(change => change.lotId === lot.id)).length;
+                setConfirmation({ type: "send", groups: completedGroups, changes: changes.length });
             };
 
             const removeLot = (lotId) => {
-                if (lots.length === 1) return;
+                onRemoveLot(lotId);
+                if (lots.length === 1) {
+                    const nextLot = createLot();
+                    setLots([nextLot]);
+                    setActiveLotId(nextLot.id);
+                    setDraft({ date: "", type: "", room: "" });
+                    setShowCalendarWarning(false);
+                    setConflictMessage("");
+                    return;
+                }
                 const remainingLots = lots.filter(lot => lot.id !== lotId);
                 setLots(remainingLots);
-                onRemoveLot(lotId);
                 if (activeLotId === lotId) {
                     setActiveLotId(remainingLots[0].id);
                     setDraft({ date: "", type: "", room: "" });
@@ -1088,6 +1173,11 @@
                     setConfirmation(null);
                     return;
                 }
+                if (confirmation.type === "send") {
+                    setConfirmation(null);
+                    onSubmit();
+                    return;
+                }
                 resetAndLeave();
             };
 
@@ -1114,43 +1204,14 @@
                     </div>
 
                     <div className="mt-5 space-y-5">
-                        <div className="multiple-panel p-5">
-                            <div className="multiple-panel-title mb-4">
-                                <span className="w-8 h-8 rounded-lg bg-blue-50 text-keralty-blue flex items-center justify-center"><IconFileText size={17} /></span>
-                                <h3>Grupos creados</h3>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {lots.map((lot, index) => {
-                                    const stored = isGroupSaved(lot);
-                                    const active = lot.id === activeLotId;
-                                    return (
-                                        <div key={lot.id} className={`inline-flex items-stretch border rounded-lg overflow-hidden ${active ? "border-keralty-blue shadow-sm" : "border-slate-200"}`}>
-                                            <button type="button" onClick={() => selectLot(lot.id)} className={`button-press px-3 py-2 text-left ${active ? "bg-keralty-blue text-white" : "bg-white text-slate-700 hover:bg-blue-50"}`}>
-                                                <span className="block text-sm font-semibold">Grupo {index + 1}{lot.doctor ? " · " + formatDoctorFirstName(lot.doctor) : ""}</span>
-                                                <span className={`group-status mt-1 ${active ? "text-white/80" : (stored ? "text-emerald-700" : "text-amber-700")}`}>
-                                                    <span aria-hidden="true">💾</span>
-                                                    {stored ? "Borrador guardado" : "Borrador sin guardar"}
-                                                </span>
-                                            </button>
-                                            {lots.length > 1 && (
-                                                <button type="button" onClick={() => setConfirmation({ type: "delete", lotId: lot.id })} title={"Eliminar grupo " + (index + 1)} className={`button-press px-2.5 border-l ${active ? "bg-keralty-blue text-white border-white/20 hover:bg-blue-900" : "bg-white text-red-500 border-slate-200 hover:bg-red-50"}`}>
-                                                    <IconTrash size={16} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-
-                        <div className="multiple-panel p-5 relative">
+                        <div ref={formPanelRef} className="multiple-panel p-5 relative scroll-mt-24">
                             <div className="multiple-panel-title mb-5">
                                 <span className="w-8 h-8 rounded-lg bg-green-50 text-keralty-green flex items-center justify-center"><IconPlus size={17} /></span>
                                 <h3>Configurar cambio</h3>
                             </div>
 
                             <div className="space-y-6">
-                                <div key={"multiple-person-" + validationCycle} className={`max-w-xl rounded-lg ${fieldErrors.person ? "field-error-shake" : ""}`}>
+                                <div key={"multiple-person-" + validationCycle} data-validation-error={fieldErrors.person ? "true" : undefined} className={`max-w-xl rounded-lg ${fieldErrors.person ? "field-error-shake" : ""}`}>
                                     <label className="text-sm font-medium text-slate-700 block mb-2">1. Médico asignado para este grupo</label>
                                     <div className="relative">
                                         <select ref={doctorSelectRef} value={activeLot ? activeLot.doctor : ""} onChange={(event) => updateDoctor(event.target.value)} disabled={activeChanges.length > 0} className={`w-full pl-3 pr-10 py-2.5 bg-white border rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-500 transition-shadow ${highlightDoctor ? "border-blue-400 ring-4 ring-blue-200" : "border-slate-200"} ${fieldErrors.person ? "field-error" : ""}`}>
@@ -1163,14 +1224,14 @@
                                     {activeChanges.length > 0 && <p className="mt-2 text-xs text-slate-500">El médico queda fijado mientras existan cambios en este grupo.</p>}
                                 </div>
 
-                                <div key={"multiple-type-" + validationCycle} className={`max-w-xl border-t border-slate-200 pt-5 ${fieldErrors.type ? "field-error-shake" : ""}`}>
+                                <div key={"multiple-type-" + validationCycle} data-validation-error={fieldErrors.type ? "true" : undefined} className={`max-w-xl border-t border-slate-200 pt-5 ${fieldErrors.type ? "field-error-shake" : ""}`}>
                                     <label className="text-sm font-medium text-slate-700 block mb-2">2. Tipo de Jornada</label>
                                     <div className="relative">
                                         <select value={draft.type} onChange={(event) => {
                                             setDraft({ date: "", type: event.target.value, room: "" });
                                             setShowCalendarWarning(false);
                                             setConflictMessage("");
-                                            setFieldErrors(current => ({ ...current, type: undefined, date: undefined, room: undefined }));
+                                            setFieldErrors(current => ({ ...current, type: undefined, date: undefined, room: undefined, collection: undefined }));
                                         }} disabled={!activeLot || !activeLot.doctor} className={`w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-400 ${fieldErrors.type ? "field-error" : ""}`}>
                                             <option value="">{activeLot && activeLot.doctor ? "Selecciona jornada..." : "Selecciona primero el médico"}</option>
                                             {Object.entries(SHIFT_TYPES).map(([category, types]) => <optgroup key={category} label={category}>{types.map(type => <option key={type} value={category + " - " + type}>{type}</option>)}</optgroup>)}
@@ -1183,33 +1244,33 @@
                                 <div className="border-t border-slate-200 pt-5">
                                     <p className="text-sm font-medium text-slate-700 mb-4">3. Fecha y sala para este cambio</p>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
-                                        <div key={"multiple-date-" + validationCycle} className={`space-y-2 rounded-lg ${fieldErrors.date ? "field-error-shake" : ""}`}>
+                                        <div key={"multiple-date-" + validationCycle} data-validation-error={fieldErrors.date ? "true" : undefined} className={`space-y-2 rounded-lg ${fieldErrors.date ? "field-error-shake" : ""}`}>
                                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconCalendar /></span> Fecha</label>
                                             <div className={fieldErrors.date ? "rounded-lg field-error" : ""}>
-                                            {draft.type ? (
-                                                <CustomCalendar value={draft.date} onChange={(date) => {
-                                                    setDraft(current => ({ ...current, date, room: "" }));
-                                                    setConflictMessage("");
-                                                    setFieldErrors(current => ({ ...current, date: undefined, room: undefined }));
-                                                }} allowedTypes={allowedDays} />
-                                            ) : (
-                                                <button type="button" onClick={() => setShowCalendarWarning(true)} className="button-press w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-lg flex justify-between items-center text-left text-slate-400">
-                                                    <span>Seleccionar fecha...</span>
-                                                    <IconCalendar size={18} />
-                                                </button>
-                                            )}
+                                                {draft.type ? (
+                                                    <CustomCalendar value={draft.date} onChange={(date) => {
+                                                        setDraft(current => ({ ...current, date, room: "" }));
+                                                        setConflictMessage("");
+                                                        setFieldErrors(current => ({ ...current, date: undefined, room: undefined, collection: undefined }));
+                                                    }} allowedTypes={allowedDays} />
+                                                ) : (
+                                                    <button type="button" onClick={() => setShowCalendarWarning(true)} className="button-press w-full px-3 py-2.5 bg-slate-100 border border-slate-200 rounded-lg flex justify-between items-center text-left text-slate-400">
+                                                        <span>Seleccionar fecha...</span>
+                                                        <IconCalendar size={18} />
+                                                    </button>
+                                                )}
                                             </div>
                                             {fieldErrors.date && <p className="text-xs font-semibold text-red-600">{fieldErrors.date}</p>}
                                             {showCalendarWarning && !draft.type && !fieldErrors.type && <p className="text-sm font-semibold text-red-600">Selecciona primero el tipo de jornada</p>}
                                         </div>
 
-                                        <div key={"multiple-room-" + validationCycle} className={`space-y-2 rounded-lg ${fieldErrors.room ? "field-error-shake" : ""}`}>
+                                        <div key={"multiple-room-" + validationCycle} data-validation-error={fieldErrors.room ? "true" : undefined} className={`space-y-2 rounded-lg ${fieldErrors.room ? "field-error-shake" : ""}`}>
                                             <label className="text-sm font-medium text-slate-600 flex items-center"><span className="text-slate-400 mr-1"><IconLayout /></span> Sala</label>
                                             <div className="relative">
                                                 <select value={draft.room} onChange={(event) => {
                                                     setDraft(current => ({ ...current, room: event.target.value }));
                                                     setConflictMessage("");
-                                                    setFieldErrors(current => ({ ...current, room: undefined }));
+                                                    setFieldErrors(current => ({ ...current, room: undefined, collection: undefined }));
                                                 }} disabled={isRoomNotRequired || !draft.date} className={`w-full pl-3 pr-10 py-2.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-keralty-blue appearance-none text-slate-700 disabled:bg-slate-100 disabled:text-slate-400 ${fieldErrors.room ? "field-error" : ""}`}>
                                                     <option value="">{isRoomNotRequired ? "No aplica" : (draft.date ? "Selecciona sala..." : "Selecciona primero la fecha")}</option>
                                                     {Object.entries(ROOMS_GROUPED).map(([groupName, rooms]) => (
@@ -1227,10 +1288,11 @@
                                         </div>
                                     </div>
 
-                                    <div className="mt-5 flex flex-col items-end gap-2">
+                                    <div data-validation-error={fieldErrors.collection ? "true" : undefined} className={`mt-5 flex flex-col items-end gap-2 rounded-lg ${fieldErrors.collection ? "field-error-shake" : ""}`}>
                                         <button type="button" onClick={addChange} className={`button-press inline-flex items-center justify-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue border transition-colors ${isDraftReady ? "bg-blue-100 border-blue-300 hover:bg-blue-200" : "bg-white border-keralty-blue hover:bg-blue-50"}`}>
                                             <span className="mr-2"><IconPlus size={18} /></span> Agregar Cambio al grupo de {formatDoctorFirstName(activeLot ? activeLot.doctor : "")}
                                         </button>
+                                        {fieldErrors.collection && <p className="text-sm font-bold text-red-600 text-right">{fieldErrors.collection}</p>}
                                         {conflictMessage && <p role="alert" className="text-sm font-bold text-red-600 text-right">{conflictMessage}</p>}
                                     </div>
                                 </div>
@@ -1242,17 +1304,16 @@
                         </div>
 
                         <div className="multiple-panel p-5">
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                                <div>
-                                    <div className="multiple-panel-title">
-                                        <span className="w-8 h-8 rounded-lg bg-blue-50 text-keralty-blue flex items-center justify-center"><IconFileText size={17} /></span>
-                                        <h3>Verificación de grupos</h3>
-                                    </div>
-                                    <p className="mt-2 text-sm text-slate-500">{lots.filter(lot => changes.some(change => change.lotId === lot.id)).length} grupo(s) · {changes.length} cambio(s)</p>
+                            <div className="mb-5">
+                                <div className="multiple-panel-title">
+                                    <span className="w-8 h-8 rounded-lg bg-blue-50 text-keralty-blue flex items-center justify-center"><IconFileText size={17} /></span>
+                                    <h3>Verifica tu Borrador de cambios</h3>
                                 </div>
-                                <button type="button" onClick={addNewLot} className="button-press inline-flex items-center justify-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50">
-                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar nuevo grupo con otro médico
-                                </button>
+                                <p className={`mt-3 text-sm font-semibold ${isDraftSaved ? "text-emerald-600" : "text-red-600"}`}>
+                                    {isDraftSaved ? "Borrador guardado" : "Borrador sin guardar"}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">Toca un grupo para editarlo</p>
+                                <p className="mt-2 text-sm text-slate-500">{lots.filter(lot => changes.some(change => change.lotId === lot.id)).length} grupo(s) · {changes.length} cambio(s)</p>
                             </div>
 
                             {changes.length === 0 ? (
@@ -1263,24 +1324,36 @@
                                         const lotChanges = changes.filter(change => change.lotId === lot.id).sort((first, second) => first.date.localeCompare(second.date));
                                         if (lotChanges.length === 0) return null;
                                         return (
-                                            <div key={lot.id} className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                                                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
+                                            <div key={lot.id} className={`bg-white border rounded-lg overflow-hidden ${lot.id === activeLotId ? "border-keralty-blue shadow-sm" : "border-slate-200"}`}>
+                                                <div role="button" tabIndex="0" onClick={() => editLot(lot.id)} onKeyDown={(event) => {
+                                                    if (event.key === "Enter" || event.key === " ") {
+                                                        event.preventDefault();
+                                                        editLot(lot.id);
+                                                    }
+                                                }} className="px-4 py-3 bg-keralty-blue border-b border-blue-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 cursor-pointer">
                                                     <div>
-                                                        <p className="text-xs font-bold uppercase text-slate-500">Grupo {lotIndex + 1}</p>
-                                                        <p className="text-sm font-semibold text-keralty-blue">{formatDoctorFullName(lot.doctor)}</p>
+                                                        <p className="text-xs font-bold uppercase text-white/70">Grupo {lotIndex + 1}</p>
+                                                        <p className="text-sm font-semibold text-white">{formatDoctorFullName(lot.doctor)}</p>
                                                     </div>
-                                                    <button type="button" onClick={() => selectLot(lot.id)} className="button-press text-xs font-medium text-keralty-blue hover:text-blue-900">Editar grupo</button>
+                                                    <div className="flex items-center gap-2">
+                                                        <button type="button" onClick={(event) => { event.stopPropagation(); editLot(lot.id); }} className="button-press inline-flex items-center justify-center px-3 py-2 rounded-lg bg-white text-keralty-blue text-xs font-semibold shadow-sm hover:bg-blue-50">
+                                                            <IconFileText size={15} className="mr-1.5" /> Editar grupo
+                                                        </button>
+                                                        <button type="button" onClick={(event) => { event.stopPropagation(); setConfirmation({ type: "delete", lotId: lot.id }); }} className="button-press inline-flex items-center justify-center px-3 py-2 rounded-lg bg-red-50 text-red-600 text-xs font-semibold shadow-sm hover:bg-red-100">
+                                                            <IconTrash size={15} className="mr-1.5" /> Eliminar
+                                                        </button>
+                                                    </div>
                                                 </div>
                                                 <div className="divide-y divide-slate-100">
                                                     {AnimatePresence ? <AnimatePresence initial={false}>{lotChanges.map(change => (
                                                         <MotionView key={change.id} enabled={motionEnabled} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -8 }} transition={{ duration: 0.2 }} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                                             <p className="text-sm text-slate-700"><strong>{change.date}</strong><span className="text-slate-400 mx-2">-</span>{change.room}<span className="text-slate-400 mx-2">-</span>{formatShiftLabel(change.type)}</p>
-                                                            <button type="button" onClick={() => onRemove(change.id)} className="button-press text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center"><IconTrash size={16} className="mr-1" /> Eliminar</button>
+                                                            <button type="button" onClick={() => onRemove(change.id)} className="button-press text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center"><IconTrash size={16} className="mr-1" /> Eliminar cambio</button>
                                                         </MotionView>
                                                     ))}</AnimatePresence> : lotChanges.map(change => (
                                                         <div key={change.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                                             <p className="text-sm text-slate-700"><strong>{change.date}</strong><span className="text-slate-400 mx-2">-</span>{change.room}<span className="text-slate-400 mx-2">-</span>{formatShiftLabel(change.type)}</p>
-                                                            <button type="button" onClick={() => onRemove(change.id)} className="button-press text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center"><IconTrash size={16} className="mr-1" /> Eliminar</button>
+                                                            <button type="button" onClick={() => onRemove(change.id)} className="button-press text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center"><IconTrash size={16} className="mr-1" /> Eliminar cambio</button>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -1289,15 +1362,21 @@
                                     })}
                                 </div>
                             )}
+
+                            <div className="mt-5 pt-5 border-t border-slate-200 w-full sm:max-w-lg">
+                                <button type="button" onClick={addNewLot} className="button-press w-full inline-flex items-center justify-center px-4 py-2.5 rounded-lg font-medium text-keralty-blue bg-white border border-keralty-blue hover:bg-blue-50">
+                                    <span className="mr-2"><IconPlus size={18} /></span> Agregar nuevo grupo
+                                </button>
+                                <button type="button" onClick={saveDraft} disabled={isSavingDraft} aria-disabled={!isMultipleComplete} className={`draft-save-button button-press mt-3 w-full inline-flex items-center justify-center px-5 py-2.5 rounded-lg font-medium border ${isMultipleComplete ? "bg-white text-keralty-blue border-keralty-blue hover:bg-blue-50" : "save-incomplete border-slate-400"} ${draftSavedPulse ? "draft-save-button-success" : ""}`}>
+                                    {isSavingDraft ? <IconRefresh className="animate-spin mr-2" size={18} /> : <span className="mr-2"><IconSave size={18} /></span>} {isSavingDraft ? "Guardando..." : "Guardar borrador sin enviar"}
+                                </button>
+                                <p className="mt-2 text-xs leading-relaxed text-slate-500">Guarda los cambios y grupos sin enviarlos todavía, por si necesitas añadir más cambios que aún están a la espera de confirmación</p>
+                            </div>
                         </div>
 
                         <div className="multiple-panel p-5">
                             <div className="w-full sm:max-w-lg ml-auto">
-                                <button type="button" onClick={saveDraft} disabled={isSavingDraft} aria-disabled={!isMultipleComplete} className={`draft-save-button button-press w-full inline-flex items-center justify-center px-5 py-2.5 rounded-lg font-medium border ${isMultipleComplete ? "bg-white text-keralty-blue border-keralty-blue hover:bg-blue-50" : "save-incomplete border-slate-400"} ${draftSavedPulse ? "draft-save-button-success" : ""}`}>
-                                    {isSavingDraft ? <IconRefresh className="animate-spin mr-2" size={18} /> : <span className="mr-2"><IconSave size={18} /></span>} {isSavingDraft ? "Guardando..." : "Guardar sin enviar"}
-                                </button>
-                                <p className="mt-2 text-xs leading-relaxed text-slate-500">Guarda los cambios y grupos sin enviarlos todavía, por si necesitas añadir más cambios que aún están a la espera de confirmación</p>
-                                <button type="button" onClick={submitAll} disabled={isSubmitting} aria-disabled={!isMultipleComplete} className={`button-press mt-4 w-full inline-flex items-center justify-center px-6 py-3 rounded-lg font-medium ${isMultipleComplete ? "save-ready" : "save-incomplete"}`}>
+                                <button type="button" onClick={submitAll} disabled={isSubmitting} aria-disabled={!isMultipleComplete} className={`button-press w-full inline-flex items-center justify-center px-6 py-3 rounded-lg font-medium ${isMultipleComplete ? "save-ready" : "save-incomplete"}`}>
                                     {isSubmitting ? <IconRefresh className="animate-spin mr-2" /> : <span className="mr-2"><IconSave /></span>} Guardar y enviar todos
                                 </button>
                             </div>
@@ -1307,30 +1386,46 @@
                     {confirmation && (
                         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
                             <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 text-center animate-fade-in">
-                                <div className="w-14 h-14 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <IconAlert size={28} />
+                                <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 ${confirmation.type === "send" ? "bg-green-100 text-green-600" : "bg-red-100 text-red-500"}`}>
+                                    {confirmation.type === "send" ? <IconSave size={28} /> : <IconAlert size={28} />}
                                 </div>
                                 <h3 className="text-lg font-bold text-slate-800 mb-2">
-                                    {confirmation.type === "delete" ? "¿Eliminar este grupo?" : "¿Salir sin guardar?"}
-                                </h3>
-                                <p className="text-sm text-slate-500 mb-6">
                                     {confirmation.type === "delete"
-                                        ? "¿Estás seguro de que deseas eliminar este grupo? Los cambios incluidos se quitarán de la lista."
-                                        : "Los cambios no se han guardado. Si continúas, se perderán las selecciones y los grupos actuales."}
-                                </p>
-                                <div className="flex flex-col gap-3">
-                                    {confirmation.type === "back" && (
-                                        <button type="button" onClick={saveDraftAndLeave} disabled={isSavingDraft} className="button-press w-full py-2.5 px-3 bg-keralty-green text-white rounded-lg font-medium hover:opacity-90 disabled:opacity-60">
-                                            {isSavingDraft ? "Guardando..." : "Guardar borradores sin enviar todavía y luego salir"}
-                                        </button>
-                                    )}
-                                    <div className="flex gap-3">
-                                        <button type="button" onClick={() => setConfirmation(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Quedarse aquí</button>
-                                        <button type="button" onClick={confirmPendingAction} className="button-press flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600">
-                                            {confirmation.type === "delete" ? "Sí, eliminar" : "Salir sin guardar"}
-                                        </button>
+                                        ? "¿Eliminar este grupo?"
+                                        : (confirmation.type === "send" ? "Confirma el envío" : "¿Salir sin guardar?")}
+                                </h3>
+                                {confirmation.type === "send" ? (
+                                    <div className="mb-6">
+                                        <p className="text-sm text-slate-500">Se procesarán:</p>
+                                        <p className="mt-3 text-lg font-bold text-keralty-blue">{confirmation.groups} grupo(s) · {confirmation.changes} cambio(s)</p>
                                     </div>
-                                </div>
+                                ) : (
+                                    <p className="text-sm text-slate-500 mb-6">
+                                        {confirmation.type === "delete"
+                                            ? "¿Estás seguro de que deseas eliminar este grupo? Los cambios incluidos se quitarán de la lista."
+                                            : "Los cambios no se han guardado. Si continúas, se perderán las selecciones y los grupos actuales."}
+                                    </p>
+                                )}
+                                {confirmation.type === "send" ? (
+                                    <div className="flex flex-col-reverse sm:flex-row gap-3">
+                                        <button type="button" onClick={() => setConfirmation(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Seguir editando</button>
+                                        <button type="button" onClick={confirmPendingAction} className="button-press flex-1 py-2.5 bg-keralty-green text-white rounded-lg font-medium hover:opacity-90">Confirmar y enviar</button>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col gap-3">
+                                        {confirmation.type === "back" && (
+                                            <button type="button" onClick={saveDraftAndLeave} disabled={isSavingDraft} className="button-press w-full py-2.5 px-3 bg-keralty-green text-white rounded-lg font-medium hover:opacity-90 disabled:opacity-60">
+                                                {isSavingDraft ? "Guardando..." : "Guardar borradores sin enviar todavía y luego salir"}
+                                            </button>
+                                        )}
+                                        <div className="flex gap-3">
+                                            <button type="button" onClick={() => setConfirmation(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Quedarse aquí</button>
+                                            <button type="button" onClick={confirmPendingAction} className="button-press flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600">
+                                                {confirmation.type === "delete" ? "Sí, eliminar" : "Salir sin guardar"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -1490,6 +1585,7 @@
             const [validationError, setValidationError] = useState("");
             const [shiftFieldErrors, setShiftFieldErrors] = useState({});
             const [individualValidationCycle, setIndividualValidationCycle] = useState(0);
+            const [individualSubmitSummary, setIndividualSubmitSummary] = useState(null);
             const [toast, setToast] = useState(null);
             
             // NUEVOS ESTADOS PARA HISTORIAL Y CANCELACIÓN
@@ -1868,7 +1964,7 @@
                 }
             };
 
-            const handleSubmit = async () => {
+            const handleSubmit = () => {
                 const errorsByShift = {};
                 shifts.forEach(shift => {
                     const errors = getShiftFieldErrors(shift);
@@ -1884,6 +1980,7 @@
                     setIndividualValidationCycle(current => current + 1);
                     setValidationError("Faltan campos por diligenciar en uno o más turnos.");
                     setToast({ message: "Completa todos los campos obligatorios.", type: "error" });
+                    scrollToFirstValidationError(document.querySelector(".individual-changes-view"));
                     return;
                 }
 
@@ -1894,6 +1991,16 @@
 
                 setShiftFieldErrors({});
                 setValidationError("");
+                setIndividualSubmitSummary({
+                    groups: shifts.length,
+                    changes: individualShifts
+                });
+            };
+
+            const confirmIndividualSubmit = async () => {
+                if (!individualSubmitSummary || individualSubmitSummary.changes.length === 0) return;
+                const individualShifts = individualSubmitSummary.changes;
+                setIndividualSubmitSummary(null);
                 setIsSubmitting(true);
                 try {
                     await sendChangesToBackend(individualShifts, "individual");
@@ -1952,7 +2059,7 @@
                 </MotionView>
             ) : activeView === 'individual' ? (
                 <MotionView key="individual" enabled={motionEnabled} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.24 }}>
-                        <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-visible">
+                        <section className="individual-changes-view bg-white rounded-2xl shadow-sm border border-slate-200 overflow-visible">
                             <div className="bg-keralty-blue px-6 py-4 flex items-center justify-between rounded-t-xl">
                                 <div className="flex items-center"><span className="text-keralty-green mr-2"><IconFileText /></span><h2 className="text-lg font-semibold text-white">Nuevas Solicitudes</h2></div>
                                 <button type="button" onClick={() => setActiveView('home')} className="text-sm text-white/90 hover:text-white font-medium">Volver</button>
@@ -2155,6 +2262,23 @@
                                         </button>
                                     </div>
                                 </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {individualSubmitSummary && (
+                        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 text-center animate-fade-in">
+                                <div className="w-14 h-14 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <IconSave size={28} />
+                                </div>
+                                <h3 className="text-lg font-bold text-slate-800 mb-2">Confirma el envío</h3>
+                                <p className="text-sm text-slate-500">Se procesarán:</p>
+                                <p className="mt-3 mb-6 text-lg font-bold text-keralty-blue">{individualSubmitSummary.groups} grupo(s) · {individualSubmitSummary.changes.length} cambio(s)</p>
+                                <div className="flex flex-col-reverse sm:flex-row gap-3">
+                                    <button type="button" onClick={() => setIndividualSubmitSummary(null)} className="button-press flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Seguir editando</button>
+                                    <button type="button" onClick={confirmIndividualSubmit} className="button-press flex-1 py-2.5 bg-keralty-green text-white rounded-lg font-medium hover:opacity-90">Confirmar y enviar</button>
+                                </div>
                             </div>
                         </div>
                     )}
