@@ -813,7 +813,7 @@
             const savedSnapshotRef = useRef("");
             const hydrationCompleteRef = useRef(false);
             const previousResetKeyRef = useRef(resetKey);
-            const activeLot = lots.find(lot => lot.id === activeLotId) || lots[0];
+            const activeLot = lots.find(lot => lot.id === activeLotId) || null;
             const isEditingCurrentLot = Boolean(activeLot && editingLotId === activeLot.id);
             const activeChanges = changes.filter(change => change.lotId === activeLotId);
             const sameDoctorChanges = changes.filter(change => activeLot && change.person === activeLot.doctor);
@@ -984,7 +984,7 @@
                 const duplicateLot = name && lots.find(lot => lot.id !== activeLotId && lot.doctor === name);
                 if (duplicateLot) {
                     setToast({
-                        message: "Ya existe un grupo con este médico. Para agregar más cambios a este médico, toca su grupo en la lista de abajo y edítalo",
+                        message: "Ya existe un grupo con este médico. Para agregar más cambios a este médico, toca su grupo en la lista de abajo y edítalo.",
                         type: "warning"
                     });
                     return;
@@ -1013,7 +1013,33 @@
                 }, 50);
             };
 
+            const openForm = () => {
+                const nextLot = createLot();
+                setLots(current => [nextLot, ...current]);
+                setActiveLotId(nextLot.id);
+                setEditingLotId(null);
+                setDraft({ date: "", type: "", room: "" });
+                setShowCalendarWarning(false);
+                setConflictMessage("");
+                setFieldErrors({});
+                setIsFormCollapsed(false);
+                setHighlightDoctor(true);
+                window.setTimeout(() => {
+                    if (formPanelRef.current) formPanelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+                    window.setTimeout(() => {
+                        if (doctorSelectRef.current) doctorSelectRef.current.focus({ preventScroll: true });
+                    }, 250);
+                }, 50);
+                window.setTimeout(() => setHighlightDoctor(false), 1800);
+            };
+
             const leaveEditMode = () => {
+                const closingLotId = activeLotId;
+                const closingLotHasChanges = Boolean(closingLotId && changes.some(change => change.lotId === closingLotId));
+                if (!closingLotHasChanges && closingLotId) {
+                    setLots(current => current.filter(lot => lot.id !== closingLotId));
+                }
+                setActiveLotId(null);
                 setEditingLotId(null);
                 setDraft({ date: "", type: "", room: "" });
                 setShowCalendarWarning(false);
@@ -1078,7 +1104,11 @@
             };
 
             const addNewLot = () => {
-                if (!activeLot || !activeLot.doctor || activeChanges.length === 0) {
+                if (!activeLot) {
+                    openForm();
+                    return;
+                }
+                if (!activeLot.doctor || activeChanges.length === 0) {
                     const nextErrors = getMultipleFieldErrors(activeLot, draft);
                     if (activeLot && activeLot.doctor && Object.keys(nextErrors).length === 0) {
                         nextErrors.collection = "Debes agregar este cambio al grupo antes de crear uno nuevo";
@@ -1292,11 +1322,9 @@
                                     <span className="w-8 h-8 rounded-lg bg-green-50 text-keralty-green flex items-center justify-center"><IconPlus size={17} /></span>
                                     <h3>Configurar cambio</h3>
                                 </div>
-                                {isFormCollapsed && (
-                                    <button type="button" onClick={() => setIsFormCollapsed(false)} className="button-press inline-flex items-center justify-center px-3 py-2 rounded-lg bg-blue-50 text-keralty-blue text-xs font-semibold hover:bg-blue-100">
-                                        Abrir formulario
-                                    </button>
-                                )}
+                                <button type="button" onClick={isFormCollapsed ? openForm : leaveEditMode} className={`button-press inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold border ${isFormCollapsed ? "bg-blue-50 text-keralty-blue border-blue-100 hover:bg-blue-100" : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200"}`}>
+                                    {isFormCollapsed ? "Abrir formulario" : "Cerrar formulario"}
+                                </button>
                             </div>
 
                             {!isFormCollapsed && (
@@ -1380,7 +1408,7 @@
                                     </div>
 
                                     <div data-validation-error={fieldErrors.collection ? "true" : undefined} className={`mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 rounded-lg ${fieldErrors.collection ? "field-error-shake" : ""}`}>
-                                        {isEditingCurrentLot && (
+                                        {activeLot && activeLot.doctor && (
                                             <button type="button" onClick={leaveEditMode} className="button-press inline-flex items-center justify-center px-4 py-2.5 rounded-lg font-medium bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200">
                                                 Dejar de editar
                                             </button>
@@ -2340,6 +2368,8 @@
                             </div>
                         </div>
                     </header>
+
+                    {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
                     {/* Modal para cambiar contraseña */}
                     {showPasswordModal && (
