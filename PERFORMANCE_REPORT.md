@@ -1,9 +1,9 @@
 # TurnoSync STAGING — Performance Report
 
-Fecha de verificación: 2026-08-18  
-Entorno evaluado: compilación local equivalente al proyecto Vercel `gestor-cambios-turnos-staging`  
-Herramienta: Lighthouse 13.0.1, perfil móvil y throttling estándar  
-Rama objetivo: `staging-(pruebas)`
+- Fecha de verificación: 2026-08-19
+- Entorno evaluado: `https://gestor-cambios-turnos-staging.vercel.app/`, despliegue del frontend `7d63721`
+- Herramienta: Lighthouse 13.0.1, perfil móvil y throttling estándar
+- Rama objetivo: `staging-(pruebas)`
 
 ## Métricas finales
 
@@ -13,12 +13,12 @@ Rama objetivo: `staging-(pruebas)`
 | Accessibility | 91 / 100 |
 | Best Practices | 100 / 100 |
 | SEO | 91 / 100 |
-| First Contentful Paint | 0,9 s |
-| Largest Contentful Paint | 3,0 s |
+| First Contentful Paint | 1,2 s |
+| Largest Contentful Paint | 2,8 s |
 | Total Blocking Time | 0 ms |
 | Cumulative Layout Shift | 0 |
-| Speed Index | 1,0 s |
-| Transferencia total | 290 KiB |
+| Speed Index | 2,7 s |
+| Transferencia total | 157 KiB |
 
 El objetivo obligatorio de Performance mayor o igual a 90 se cumplió.
 
@@ -48,6 +48,12 @@ El objetivo obligatorio de Performance mayor o igual a 90 se cumplió.
    - El logo remoto se almacenó como recurso local para eliminar latencia externa.
    - La transferencia total bajó a 290 KiB.
 
+5. **QA del despliegue e idempotencia — Performance pública 95**
+   - La primera inspección del despliegue detectó referencias repetidas a `styles.css` producidas por ejecuciones sucesivas del compilador.
+   - El generador se hizo idempotente: normaliza las referencias existentes y agrega exactamente una hoja de estilos.
+   - Dos compilaciones consecutivas produjeron hashes idénticos para `index.html` y `app.js`.
+   - La auditoría del alias público confirmó 157 KiB transferidos, TBT de 0 ms, CLS de 0 y Performance de 95.
+
 ## Verificación funcional y lógica
 
 - Motor validado durante **60 meses consecutivos**, desde 2026-09 hasta 2031-08.
@@ -55,6 +61,7 @@ El objetivo obligatorio de Performance mayor o igual a 90 se cumplió.
 - **132 ajustes de fatiga** aplicados correctamente.
 - Validaciones del API: rechazo de colisión, swap directo, rechazo de swap incompatible y transferencia a destino vacío.
 - Endpoint real de Apps Script STAGING: mes 2026-09, revisión 3, 30 días y 129 filas.
+- Flujo público Vercel → Apps Script verificado con HTTP 200 y respuesta STAGING de 129 filas.
 - Apps Script STAGING desplegado como versión 9, conservando la URL existente.
 - Prueba móvil automatizada a 390×844: ancho de documento 390 px, sin desbordamiento y sin errores propios de consola.
 
