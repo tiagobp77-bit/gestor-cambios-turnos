@@ -43,6 +43,7 @@ const compiled = babel.transformSync(source, {
 fs.writeFileSync(outputPath, compiled.code + "\n", "utf8");
 
 html = html
+  .replace(/\s*<link rel="stylesheet" href="\.\/styles\.css">/g, "")
   .replace(/\s*<script src="https:\/\/cdn\.tailwindcss\.com"><\/script>\s*<script>[\s\S]*?tailwind\.config\s*=\s*\{[\s\S]*?<\/script>/, "")
   .replace(/\s*<script src="https:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/babel-standalone\/[^"]+"><\/script>/, "")
   .replace('<meta name="viewport" content="width=device-width, initial-scale=1.0">', '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n    <link rel="stylesheet" href="./styles.css">')
