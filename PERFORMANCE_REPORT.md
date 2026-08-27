@@ -3,24 +3,24 @@
 - Fecha de verificación: 2026-08-27
 - Entorno: `https://gestor-cambios-turnos-staging.vercel.app/`
 - Rama: `staging-(pruebas)`
-- Commit funcional auditado: `22e9b03c968fdbff10573e1009836acda7c08850`
-- Despliegue Vercel: `dpl_d8gtDjPDz9YKeSUUjvwPMjPiBFhU` (`READY`)
-- Apps Script STAGING: versión 14
+- Commit funcional auditado: `7d7bcafc6f8afb66b5a1808a6af013fddb6f4f64`
+- Despliegue Vercel: `dpl_5E8SSM3shenjS4AKo7SjKenqXJjc` (`READY`)
+- Apps Script STAGING: versión 15
 - Herramienta: Lighthouse 13, perfil móvil y throttling estándar
 
 ## Métricas finales
 
 | Categoría / métrica | Resultado |
 |---|---:|
-| Performance | **94 / 100** |
+| Performance | **95 / 100** |
 | Accessibility | 91 / 100 |
 | Best Practices | 100 / 100 |
 | SEO | 91 / 100 |
 | First Contentful Paint | 1,2 s |
-| Largest Contentful Paint | 2,8 s |
+| Largest Contentful Paint | 2,9 s |
 | Total Blocking Time | 0 ms |
 | Cumulative Layout Shift | 0 |
-| Speed Index | 3,9 s |
+| Speed Index | 2,7 s |
 | Transferencia total | 157 KiB |
 
 El objetivo obligatorio de Performance mayor o igual a 90 se cumplió.
@@ -33,9 +33,11 @@ El objetivo obligatorio de Performance mayor o igual a 90 se cumplió.
 - La ruta temporal de migración fue retirada del Web App y responde `Acción no reconocida`.
 - El flujo Vercel → proxy `/api/apps-script` → Apps Script → Google Sheets respondió HTTP 200 para agosto de 2026.
 - El motor pasó 60 meses consecutivos (2026-09 a 2031-08): 1.826 días, 89 festivos y 132 reajustes antifatiga.
-- Pasaron las pruebas de rechazo por colisión, swap directo, rechazo de swap incompatible, traslado a destino vacío, descombinación parcial de fin de semana y resolución por ID estable.
+- Pasaron las pruebas de rechazo por colisión, swap directo, rechazo de swap incompatible, traslado a destino vacío, búsqueda global del propietario real, escritura de una sala todavía ausente, descombinación parcial de fin de semana y resolución por ID estable.
+- El endpoint STAGING se comprobó en modo de solo lectura: detectó Sala 5 en la fila del propietario real, preparó su limpieza y la asignación al destino vacío sin guardar cambios ni enviar notificaciones.
+- El Dashboard quedó verificado con E1:E4 combinado, año negro, encabezados AGOSTO/SEPTIEMBRE combinados en filas 1–2 y márgenes históricos en blanco y combinados por mes.
 - Pasó la simulación de cambio anual: archivo `Turnos_2026`, dos meses preservados, enero reiniciado en la columna F y rango A1:D4 intacto.
-- Prueba móvil automatizada a 390×844: ancho del documento de 390 px y cero errores propios de consola.
+- Prueba móvil automatizada a 390×844: ancho del documento de 390 px, desplazamiento 220 px horizontal/180 px vertical, encabezado y columna médica fijos con desviación 0 px, y cero errores propios de consola.
 - Vercel registró cero respuestas 4xx/5xx durante la verificación. Solo aparece una advertencia deprecada de la capa Node de la plataforma sobre `url.parse`; el proxy de TurnoSync ya usa la API estándar `new URL`.
 
 ## Iteraciones y optimizaciones aplicadas
@@ -64,4 +66,10 @@ El objetivo obligatorio de Performance mayor o igual a 90 se cumplió.
 5. **Rendimiento web**
    - JSX y Tailwind permanecen precompilados; no se compilan en el navegador.
    - Google Sign-In se carga bajo demanda, los recursos críticos están optimizados y las imágenes tienen dimensiones explícitas.
-   - Resultado final: TBT 0 ms, CLS 0, 157 KiB transferidos y Performance 94.
+   - Resultado final del hotfix: TBT 0 ms, CLS 0, 157 KiB transferidos y Performance 95.
+
+6. **Hotfix de integridad y navegación**
+   - El frontend dejó de forzar `swap`; los cambios comunes se procesan como traspasos validados.
+   - El backend acepta una sala cuyo destino estaba vacío, localiza globalmente al propietario real y limpia todas las coincidencias de esa sala/fecha/jornada antes de escribir el destino.
+   - La cuadrícula usa un único contenedor de scroll bidireccional; fechas, Médico y Turno permanecen visibles mediante capas sticky diferenciadas.
+   - Agosto de 2026 se reconstruye desde un estado de apertura y superpone primero los valores de `Cuadro de Turnos`, completando solo celdas vacías.
