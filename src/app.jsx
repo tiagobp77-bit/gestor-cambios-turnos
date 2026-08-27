@@ -72,16 +72,6 @@ const { useState, useEffect, useRef, useMemo } = React;
             "Extendidos": ["Extendido 1", "Extendido 2", "Extendido 3", "Extendido Sabado"]
         };
 
-        const FALLBACK_DOCTORS = [
-            "CARLOS ANDRES CARTAGENA ARCINIEGAS", "MARIA ALEJANDRA GUTIERREZ AMORTEGUI", "ANGELA MARIA BURGOS SANABRIA", "FANNY ALEXANDRA ORTIZ BAQUERO",
-            "DANIEL FERNANDO GARCIA ZEA", "ANDRES MARCELO DIAZ CLAVIJO", "EDNA MILENA RAMIREZ VELANDIA", "KEVIN BELTRAN RICAURTE", "LAURA MARGARITA DIAZ FRANCO",
-            "OSCAR DAVID GOMEZ HIDALGO", "LIZETH PAOLA MORA JAIMES", "ELKIN GUSTAVO PINZON SANCHEZ", "ANDRES CAMILO HERRERA MONCADA", "MARIA JUANITA NORATO PEDRAZA",
-            "NATALIA PEÑA PULIDO", "SANTIAGO BECERRA PATIÑO", "DAVID ALEJANDRO BOLAÑOS", "VIVIANA SORAYA FONSECA BARBOSA", "LAURA NARANJO OSUNA",
-            "DIANA MILENA MUÑETONES BUITRAGO", "NIDIA CATALINA LEON RODRIGUEZ", "SEBASTIAN BARRAGAN BARRETO", "JUAN SEBASTIAN LAZARO ORJUELA", "LAURA SOFIA SARAZA SALGADO",
-            "NATALIA ALEJANDRA GOMEZ JIMENEZ", "NATALIA PAOLA ACOSTA RODRIGUEZ", "CARLOS ANDRES SANCHEZ TRIANA", "LUIS ARTURO MOLINA LAGUNA", "ANA MARIA SANDOVAL RESTREPO",
-            "DANIEL SANTIAGO OQUENDO MAYORGA", "VALENTINA MARTIN GALVIS", "XIMENA ANDREA CASTELBLANCO", "STEFANNY MARTINEZ QUESADA"
-        ].map(name => ({ name: name, group: "", schedule: "" }));
-
         const DOCTOR_SCHEDULE_GROUPS = [
             { key: "AM", label: "Médicos de la mañana" },
             { key: "PM", label: "Médicos de la Tarde" },
@@ -712,18 +702,22 @@ const { useState, useEffect, useRef, useMemo } = React;
             const [dashboard, setDashboard] = useState(null);
             const [isLoading, setIsLoading] = useState(true);
             const [error, setError] = useState("");
+            const [selectedMonth, setSelectedMonth] = useState("");
             const [journey, setJourney] = useState("TODAS");
             const [doctorSearch, setDoctorSearch] = useState("");
             const [hideWeekends, setHideWeekends] = useState(false);
             const [specialOnly, setSpecialOnly] = useState(false);
 
-            const loadDashboard = async () => {
+            const loadDashboard = async (month = selectedMonth) => {
                 setIsLoading(true);
                 setError("");
                 try {
-                    const result = await backendGet({ action: "getDashboard" });
+                    const params = { action: "getDashboard" };
+                    if (month) params.month = month;
+                    const result = await backendGet(params);
                     if (result.status !== "success") throw new Error(result.message || "No fue posible cargar el cuadro");
                     setDashboard(result);
+                    setSelectedMonth(result.month);
                 } catch (loadError) {
                     const message = loadError.message || "No fue posible cargar el cuadro de turnos.";
                     setError(message);
@@ -733,7 +727,7 @@ const { useState, useEffect, useRef, useMemo } = React;
                 }
             };
 
-            useEffect(() => { loadDashboard(); }, []);
+            useEffect(() => { loadDashboard(""); }, []);
 
             const visibleDays = useMemo(() => {
                 if (!dashboard) return [];
@@ -759,9 +753,40 @@ const { useState, useEffect, useRef, useMemo } = React;
                 });
             }, [dashboard, doctorSearch, journey, specialOnly]);
 
+            const rowGroups = useMemo(() => {
+                const groups = [];
+                visibleRows.forEach(row => {
+                    const key = `${row.section}::${row.doctor}`;
+                    const current = groups[groups.length - 1];
+                    if (current && current.key === key) current.rows.push(row);
+                    else groups.push({ key, doctor: row.doctor, section: row.section, rows: [row] });
+                });
+                return groups;
+            }, [visibleRows]);
+
+            const availableMonths = dashboard?.availableMonths?.length
+                ? dashboard.availableMonths
+                : (dashboard ? [{ key: dashboard.month, name: dashboard.monthName, year: dashboard.month.slice(0, 4), current: true }] : []);
+            const activeMonthIndex = availableMonths.findIndex(item => item.key === selectedMonth);
+            const moveMonth = (offset) => {
+                const next = availableMonths[activeMonthIndex + offset];
+                if (next) loadDashboard(next.key);
+            };
+
             const dayBackground = (day) => day.isHoliday
                 ? "#D9F0F7"
                 : (day.code === "S" ? "#DCEAF6" : (day.code === "D" ? "#E6F4D7" : "#FFFFFF"));
+            const cellBackground = (day, row) => {
+                const label = String(row.label || "").toLocaleUpperCase("es-CO");
+                if (!day.isHoliday && !day.isWeekend && (label.includes("DISPO DÍA") || label.includes("DISPO NOCHE"))) return "#D9D9D9";
+                return dayBackground(day);
+            };
+            const isNightAvailability = (value, row) => {
+                if (value !== "2") return false;
+                const label = String(row.label || "").toLocaleUpperCase("es-CO");
+                const section = String(row.section || "").toLocaleUpperCase("es-CO");
+                return label.includes("DISPO NOCHE") || (section.includes("EXTENDIDO") && label === "DISPO");
+            };
 
             return (
                 <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -776,15 +801,19 @@ const { useState, useEffect, useRef, useMemo } = React;
                         <button type="button" onClick={onBack} className="text-sm text-white/90 hover:text-white font-medium shrink-0">Volver</button>
                     </div>
 
-                    <div className="p-4 sm:p-6 bg-slate-50">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+                    <div className="p-2 sm:p-4 bg-slate-50">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 mb-3">
                             <label className="text-xs font-semibold text-slate-600">Mes
-                                <select value={dashboard ? dashboard.month : ""} disabled className="mt-1 w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 disabled:opacity-100">
-                                    <option>{dashboard ? `${dashboard.monthName} ${dashboard.month.slice(0, 4)}` : "Cargando..."}</option>
-                                </select>
+                                <span className="mt-1 flex items-stretch">
+                                    <button type="button" aria-label="Mes anterior" onClick={() => moveMonth(-1)} disabled={activeMonthIndex <= 0 || isLoading} className="w-8 border border-r-0 border-slate-200 rounded-l-lg bg-white text-keralty-blue disabled:text-slate-300">‹</button>
+                                    <select aria-label="Seleccionar mes" value={selectedMonth} onChange={event => loadDashboard(event.target.value)} disabled={!dashboard || isLoading} className="min-w-0 flex-1 px-2 py-2 bg-white border border-slate-200 text-xs text-slate-700">
+                                        {availableMonths.map(item => <option key={item.key} value={item.key}>{item.name} {item.year}{item.current ? " · actual" : ""}</option>)}
+                                    </select>
+                                    <button type="button" aria-label="Mes siguiente" onClick={() => moveMonth(1)} disabled={activeMonthIndex < 0 || activeMonthIndex >= availableMonths.length - 1 || isLoading} className="w-8 border border-l-0 border-slate-200 rounded-r-lg bg-white text-keralty-blue disabled:text-slate-300">›</button>
+                                </span>
                             </label>
                             <label className="text-xs font-semibold text-slate-600">Jornada
-                                <select value={journey} onChange={event => setJourney(event.target.value)} className="mt-1 w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700">
+                                <select value={journey} onChange={event => setJourney(event.target.value)} className="mt-1 w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-700">
                                     <option value="TODAS">Todas</option>
                                     <option value="AM">Mañana</option>
                                     <option value="PM">Tarde</option>
@@ -794,14 +823,14 @@ const { useState, useEffect, useRef, useMemo } = React;
                                 </select>
                             </label>
                             <label className="text-xs font-semibold text-slate-600 lg:col-span-2">Buscar médico
-                                <input type="search" value={doctorSearch} onChange={event => setDoctorSearch(event.target.value)} placeholder="Nombre o apellido" className="mt-1 w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:ring-2 focus:ring-keralty-blue outline-none" />
+                                <input type="search" value={doctorSearch} onChange={event => setDoctorSearch(event.target.value)} placeholder="Nombre o apellido" className="mt-1 w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:ring-2 focus:ring-keralty-blue outline-none" />
                             </label>
-                            <button type="button" onClick={loadDashboard} disabled={isLoading} className="self-end h-[42px] rounded-lg bg-white border border-slate-200 text-keralty-blue font-semibold hover:bg-blue-50 flex items-center justify-center disabled:opacity-60">
+                            <button type="button" onClick={() => loadDashboard(selectedMonth)} disabled={isLoading} className="self-end h-[34px] rounded-lg bg-white border border-slate-200 text-xs text-keralty-blue font-semibold hover:bg-blue-50 flex items-center justify-center disabled:opacity-60">
                                 <IconRefresh size={17} className={isLoading ? "animate-spin mr-2" : "mr-2"} /> Actualizar
                             </button>
                         </div>
 
-                        <div className="flex flex-wrap gap-x-5 gap-y-2 mb-4 text-xs text-slate-600">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-3 text-[10px] sm:text-xs text-slate-600">
                             <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={hideWeekends} onChange={event => setHideWeekends(event.target.checked)} className="rounded text-keralty-blue" /> Ocultar fines de semana</label>
                             <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={specialOnly} onChange={event => setSpecialOnly(event.target.checked)} className="rounded text-keralty-blue" /> Solo grupos especiales</label>
                             <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm border-2 border-amber-500 bg-white"></span> Cambio desde TurnoSync</span>
@@ -813,31 +842,32 @@ const { useState, useEffect, useRef, useMemo } = React;
                         ) : error ? (
                             <div className="py-12 text-center bg-white border border-red-100 rounded-xl"><p className="text-sm font-semibold text-red-600">{error}</p><button type="button" onClick={loadDashboard} className="mt-4 px-4 py-2 bg-keralty-blue text-white rounded-lg text-sm font-medium">Reintentar</button></div>
                         ) : (
-                            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                            <div className="bg-white border border-slate-300 rounded-lg overflow-hidden">
                                 <div className="overflow-x-auto overscroll-x-contain" role="region" aria-label="Cuadro mensual de turnos" tabIndex="0">
-                                    <table className="border-collapse text-xs" style={{ minWidth: `${230 + visibleDays.length * 44}px` }}>
+                                    <table className="border-collapse text-[9px] sm:text-[10px] leading-none" style={{ minWidth: `${162 + visibleDays.length * 28}px` }}>
                                         <thead>
                                             <tr>
-                                                <th className="border-b border-r border-slate-200 bg-slate-100 text-left px-2 py-2.5 text-keralty-blue z-[3]" style={{ position: "sticky", left: 0, minWidth: "145px", width: "145px" }}>Médico</th>
-                                                <th className="border-b border-r border-slate-200 bg-slate-100 text-left px-2 py-2.5 text-keralty-blue z-[3]" style={{ position: "sticky", left: "145px", minWidth: "85px", width: "85px" }}>Turno</th>
-                                                {visibleDays.map(day => <th key={day.date} className="border-b border-r border-slate-200 text-center font-bold py-1.5" style={{ background: dayBackground(day), minWidth: "44px" }}><span className="block text-[10px] text-slate-500">{day.code}</span><span className="text-slate-800">{day.day}</span></th>)}
+                                                <th className="border-b border-r border-black bg-slate-100 text-left px-1 py-1.5 text-keralty-blue z-[3]" style={{ position: "sticky", left: 0, minWidth: "104px", width: "104px" }}>Médico</th>
+                                                <th className="border-b border-r border-black bg-slate-100 text-left px-1 py-1.5 text-keralty-blue z-[3]" style={{ position: "sticky", left: "104px", minWidth: "58px", width: "58px" }}>Turno</th>
+                                                {visibleDays.map(day => <th key={day.date} className="border-b border-r border-black text-center font-bold py-0.5" style={{ background: dayBackground(day), minWidth: "28px", width: "28px" }}><span className="block text-[7px] text-slate-500">{day.code}</span><span className="text-[9px] text-slate-800">{day.day}</span></th>)}
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {visibleRows.map(row => (
+                                            {rowGroups.map(group => group.rows.map((row, rowIndex) => (
                                                 <tr key={row.rowNumber} className="hover:bg-blue-50/50">
-                                                    <td className="border-b border-r border-slate-200 bg-white px-2 py-2 align-top z-[2]" style={{ position: "sticky", left: 0 }}>
-                                                        <span className="block font-semibold text-slate-700 leading-tight">{formatDoctorFullName(row.doctor)}</span>
-                                                        <span className="block mt-1 text-[9px] uppercase tracking-wide text-slate-400">{row.section.replace("JORNADA ", "")}</span>
-                                                    </td>
-                                                    <td className="border-b border-r border-slate-200 bg-white px-2 py-2 font-medium text-slate-500 z-[2]" style={{ position: "sticky", left: "145px" }}>{row.label}</td>
+                                                    {rowIndex === 0 && <td rowSpan={group.rows.length} className="border-b border-r border-black bg-white px-1 py-1 align-middle z-[2]" style={{ position: "sticky", left: 0, maxWidth: "104px" }}>
+                                                        <span className="block font-semibold text-[8px] sm:text-[9px] text-slate-700 leading-[1.1] break-words">{formatDoctorFullName(group.doctor)}</span>
+                                                        <span className="block mt-0.5 text-[6px] sm:text-[7px] uppercase tracking-tight text-slate-400">{group.section.replace("JORNADA ", "")}</span>
+                                                    </td>}
+                                                    <td className="border-b border-r border-black bg-white px-1 py-1 font-medium text-[7px] sm:text-[8px] text-slate-500 z-[2] whitespace-normal" style={{ position: "sticky", left: "104px" }}>{row.label}</td>
                                                     {visibleDays.map(day => {
                                                         const value = row.values[day.day - 1] || "";
                                                         const manual = (row.manualDays || []).includes(day.day);
-                                                        return <td key={day.date} title={manual ? "Cambio realizado desde TurnoSync" : ""} className={`border-b border-r border-slate-200 text-center font-bold relative ${value === "2" ? "text-red-600" : "text-slate-700"} ${manual ? "ring-2 ring-inset ring-amber-500" : ""}`} style={{ background: dayBackground(day), height: "34px" }}>{value}{manual && <span className="absolute right-0.5 top-0.5 w-1.5 h-1.5 rounded-full bg-amber-500" />}</td>;
+                                                        const red = isNightAvailability(value, row);
+                                                        return <td key={day.date} title={manual ? "Cambio realizado desde TurnoSync" : ""} className={`border-b border-r border-black text-center text-[9px] font-bold relative ${red ? "text-red-600" : "text-slate-800"} ${manual ? "ring-1 ring-inset ring-amber-500" : ""}`} style={{ background: cellBackground(day, row), height: "22px", minWidth: "28px" }}>{value}{manual && <span className="absolute right-0 top-0 w-1 h-1 rounded-full bg-amber-500" />}</td>;
                                                     })}
                                                 </tr>
-                                            ))}
+                                            )))}
                                             {visibleRows.length === 0 && <tr><td colSpan={visibleDays.length + 2} className="py-12 text-center text-slate-500">No hay filas que coincidan con los filtros.</td></tr>}
                                         </tbody>
                                     </table>
@@ -1874,8 +1904,8 @@ const { useState, useEffect, useRef, useMemo } = React;
                         else throw new Error(result.message);
                     } catch (error) {
                         doctorsLoadedRef.current = false;
-                        setDoctorsList(FALLBACK_DOCTORS);
-                        setToast({ message: "No se pudo conectar a Sheets. Usando lista temporal.", type: "warning" });
+                        setDoctorsList([]);
+                        setToast({ message: "No se pudo cargar Setup_Medicos. Reintenta antes de registrar cambios.", type: "error" });
                     } finally {
                         setIsLoadingDoctors(false);
                     }
