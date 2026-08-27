@@ -843,23 +843,23 @@ const { useState, useEffect, useRef, useMemo } = React;
                             <div className="py-12 text-center bg-white border border-red-100 rounded-xl"><p className="text-sm font-semibold text-red-600">{error}</p><button type="button" onClick={loadDashboard} className="mt-4 px-4 py-2 bg-keralty-blue text-white rounded-lg text-sm font-medium">Reintentar</button></div>
                         ) : (
                             <div className="bg-white border border-slate-300 rounded-lg overflow-hidden">
-                                <div className="overflow-x-auto overscroll-x-contain" role="region" aria-label="Cuadro mensual de turnos" tabIndex="0">
+                                <div className="overflow-auto overscroll-contain" style={{ maxHeight: "68vh", overflow: "auto", overscrollBehavior: "contain" }} role="region" aria-label="Cuadro mensual de turnos" tabIndex="0">
                                     <table className="border-collapse text-[9px] sm:text-[10px] leading-none" style={{ minWidth: `${162 + visibleDays.length * 28}px` }}>
                                         <thead>
                                             <tr>
-                                                <th className="border-b border-r border-black bg-slate-100 text-left px-1 py-1.5 text-keralty-blue z-[3]" style={{ position: "sticky", left: 0, minWidth: "104px", width: "104px" }}>Médico</th>
-                                                <th className="border-b border-r border-black bg-slate-100 text-left px-1 py-1.5 text-keralty-blue z-[3]" style={{ position: "sticky", left: "104px", minWidth: "58px", width: "58px" }}>Turno</th>
-                                                {visibleDays.map(day => <th key={day.date} className="border-b border-r border-black text-center font-bold py-0.5" style={{ background: dayBackground(day), minWidth: "28px", width: "28px" }}><span className="block text-[7px] text-slate-500">{day.code}</span><span className="text-[9px] text-slate-800">{day.day}</span></th>)}
+                                                <th className="border-b border-r border-black bg-slate-100 text-left px-1 py-1.5 text-keralty-blue" style={{ position: "sticky", top: 0, left: 0, zIndex: 60, minWidth: "104px", width: "104px" }}>Médico</th>
+                                                <th className="border-b border-r border-black bg-slate-100 text-left px-1 py-1.5 text-keralty-blue" style={{ position: "sticky", top: 0, left: "104px", zIndex: 60, minWidth: "58px", width: "58px" }}>Turno</th>
+                                                {visibleDays.map(day => <th key={day.date} className="border-b border-r border-black text-center font-bold py-0.5" style={{ position: "sticky", top: 0, zIndex: 40, background: dayBackground(day), minWidth: "28px", width: "28px" }}><span className="block text-[7px] text-slate-500">{day.code}</span><span className="text-[9px] text-slate-800">{day.day}</span></th>)}
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {rowGroups.map(group => group.rows.map((row, rowIndex) => (
                                                 <tr key={row.rowNumber} className="hover:bg-blue-50/50">
-                                                    {rowIndex === 0 && <td rowSpan={group.rows.length} className="border-b border-r border-black bg-white px-1 py-1 align-middle z-[2]" style={{ position: "sticky", left: 0, maxWidth: "104px" }}>
+                                                    {rowIndex === 0 && <td rowSpan={group.rows.length} className="border-b border-r border-black bg-white px-1 py-1 align-middle" style={{ position: "sticky", left: 0, zIndex: 20, maxWidth: "104px" }}>
                                                         <span className="block font-semibold text-[8px] sm:text-[9px] text-slate-700 leading-[1.1] break-words">{formatDoctorFullName(group.doctor)}</span>
                                                         <span className="block mt-0.5 text-[6px] sm:text-[7px] uppercase tracking-tight text-slate-400">{group.section.replace("JORNADA ", "")}</span>
                                                     </td>}
-                                                    <td className="border-b border-r border-black bg-white px-1 py-1 font-medium text-[7px] sm:text-[8px] text-slate-500 z-[2] whitespace-normal" style={{ position: "sticky", left: "104px" }}>{row.label}</td>
+                                                    <td className="border-b border-r border-black bg-white px-1 py-1 font-medium text-[7px] sm:text-[8px] text-slate-500 whitespace-normal" style={{ position: "sticky", left: "104px", zIndex: 20 }}>{row.label}</td>
                                                     {visibleDays.map(day => {
                                                         const value = row.values[day.day - 1] || "";
                                                         const manual = (row.manualDays || []).includes(day.day);
@@ -2155,7 +2155,7 @@ const { useState, useEffect, useRef, useMemo } = React;
                         jornada: shift.type,
                         fecha: shift.date,
                         sala: isRoomNotRequiredForType(shift.type) ? "N/A" : shift.room,
-                        swap: true,
+                        swap: false,
                         timestamp: submittedAt,
                         modo: mode,
                         grupoId: mode === "multiple" ? submissionId + "::" + (shift.lotId || "grupo") : ""
