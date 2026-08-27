@@ -1,15 +1,18 @@
 # TurnoSync STAGING — Performance Report
 
-- Fecha de verificación: 2026-08-19
-- Entorno evaluado: `https://gestor-cambios-turnos-staging.vercel.app/`, despliegue del frontend `7d63721`
-- Herramienta: Lighthouse 13.0.1, perfil móvil y throttling estándar
-- Rama objetivo: `staging-(pruebas)`
+- Fecha de verificación: 2026-08-27
+- Entorno: `https://gestor-cambios-turnos-staging.vercel.app/`
+- Rama: `staging-(pruebas)`
+- Commit funcional auditado: `22e9b03c968fdbff10573e1009836acda7c08850`
+- Despliegue Vercel: `dpl_d8gtDjPDz9YKeSUUjvwPMjPiBFhU` (`READY`)
+- Apps Script STAGING: versión 14
+- Herramienta: Lighthouse 13, perfil móvil y throttling estándar
 
 ## Métricas finales
 
 | Categoría / métrica | Resultado |
 |---|---:|
-| Performance | **95 / 100** |
+| Performance | **94 / 100** |
 | Accessibility | 91 / 100 |
 | Best Practices | 100 / 100 |
 | SEO | 91 / 100 |
@@ -17,60 +20,48 @@
 | Largest Contentful Paint | 2,8 s |
 | Total Blocking Time | 0 ms |
 | Cumulative Layout Shift | 0 |
-| Speed Index | 2,7 s |
+| Speed Index | 3,9 s |
 | Transferencia total | 157 KiB |
 
 El objetivo obligatorio de Performance mayor o igual a 90 se cumplió.
 
-## Iteraciones realizadas
-
-1. **Línea base — Performance 30**
-   - La aplicación compilaba JSX y Tailwind dentro del navegador.
-   - FCP: 7,3 s; LCP: 12,0 s; TBT: 1.540 ms.
-
-2. **Compilación estática — Performance 75**
-   - Se eliminó Babel Standalone del navegador.
-   - El JSX se precompiló en `app.js`.
-   - Tailwind se precompiló y minificó en `styles.css`.
-   - React y ReactDOM quedaron con carga diferida.
-   - TBT bajó a 0 ms y FCP a 0,9 s.
-
-3. **Carga progresiva y estabilidad visual**
-   - Google Sign-In se carga únicamente cuando el usuario elige esa opción.
-   - El aviso de instalación PWA se movió al área autenticada para que no altere el primer render.
-   - El login se muestra inmediatamente y no espera un splash bloqueante.
-   - Se definieron dimensiones explícitas para las imágenes.
-   - CLS final: 0.
-
-4. **Optimización de recursos — Performance 95**
-   - El icono declarado como 192×192 realmente medía 1024×1024 y transfería aproximadamente 1 MiB.
-   - Se creó `icon-192x192-optimized.png`, de 192×192 reales y aproximadamente 37 KiB.
-   - El logo remoto se almacenó como recurso local para eliminar latencia externa.
-   - La transferencia total bajó a 290 KiB.
-
-5. **QA del despliegue e idempotencia — Performance pública 95**
-   - La primera inspección del despliegue detectó referencias repetidas a `styles.css` producidas por ejecuciones sucesivas del compilador.
-   - El generador se hizo idempotente: normaliza las referencias existentes y agrega exactamente una hoja de estilos.
-   - Dos compilaciones consecutivas produjeron hashes idénticos para `index.html` y `app.js`.
-   - La auditoría del alias público confirmó 157 KiB transferidos, TBT de 0 ms, CLS de 0 y Performance de 95.
-
 ## Verificación funcional y lógica
 
-- Motor validado durante **60 meses consecutivos**, desde 2026-09 hasta 2031-08.
-- **1.826 días** simulados y **89 festivos** colombianos evaluados.
-- **132 ajustes de fatiga** aplicados correctamente.
-- Validaciones del API: rechazo de colisión, swap directo, rechazo de swap incompatible y transferencia a destino vacío.
-- Endpoint real de Apps Script STAGING: mes 2026-09, revisión 3, 30 días y 129 filas.
-- Flujo público Vercel → Apps Script verificado con HTTP 200 y respuesta STAGING de 129 filas.
-- Apps Script STAGING desplegado como versión 9, conservando la URL existente.
-- Prueba móvil automatizada a 390×844: ancho de documento 390 px, sin desbordamiento y sin errores propios de consola.
+- Los seis archivos descargados del proyecto Apps Script STAGING coinciden byte por byte con la copia local validada.
+- El endpoint real devuelve 32 médicos exclusivamente desde `Setup_Medicos`; no existe fallback operativo hacia `Orden A`.
+- El historial expone agosto y septiembre de 2026, con 31/30 días y 129 filas por mes. La revisión vigente del motor es 4.
+- La ruta temporal de migración fue retirada del Web App y responde `Acción no reconocida`.
+- El flujo Vercel → proxy `/api/apps-script` → Apps Script → Google Sheets respondió HTTP 200 para agosto de 2026.
+- El motor pasó 60 meses consecutivos (2026-09 a 2031-08): 1.826 días, 89 festivos y 132 reajustes antifatiga.
+- Pasaron las pruebas de rechazo por colisión, swap directo, rechazo de swap incompatible, traslado a destino vacío, descombinación parcial de fin de semana y resolución por ID estable.
+- Pasó la simulación de cambio anual: archivo `Turnos_2026`, dos meses preservados, enero reiniciado en la columna F y rango A1:D4 intacto.
+- Prueba móvil automatizada a 390×844: ancho del documento de 390 px y cero errores propios de consola.
+- Vercel registró cero respuestas 4xx/5xx durante la verificación. Solo aparece una advertencia deprecada de la capa Node de la plataforma sobre `url.parse`; el proxy de TurnoSync ya usa la API estándar `new URL`.
 
-## Mejoras técnicas aplicadas
+## Iteraciones y optimizaciones aplicadas
 
-- Escritura mensual del dashboard en lote.
-- `DocumentLock` para validar y aplicar cambios concurrentes.
-- Registro de auditoría de cambios manuales y reaplicación al regenerar el mes.
-- Notas y borde ámbar para identificar cambios provenientes de TurnoSync.
-- Proxy Vercel con `OPTIONS`, CORS limitado al dominio STAGING y caché desactivada para operaciones del backend.
-- Filtros responsivos por jornada, médico, fin de semana y grupos especiales.
-- Columnas fijas y desplazamiento horizontal contenido para uso móvil.
+1. **Fuente única de personal**
+   - Se migraron correo y celular a `Setup_Medicos` y se eliminaron las listas temporales del frontend.
+   - Endpoints, notificaciones, recordatorios y resolución de médicos consultan una sola fuente.
+   - Los secretos de WhatsApp quedaron en Script Properties y el entorno STAGING conserva el desvío obligatorio al número de prueba.
+
+2. **Historial mensual y archivo anual**
+   - Cada mes se escribe en lote a la derecha del anterior y las columnas históricas se ocultan sin borrar datos.
+   - Al iniciar enero se archiva el año terminado en `Turnos_YYYY` y el dashboard vuelve a comenzar en F.
+   - La hoja oculta `Dashboard_Meses` mantiene el índice consultado por la app.
+
+3. **Motor y concurrencia**
+   - Se fijó agosto de 2026 como punto cero y se normalizaron las claves mensuales como texto.
+   - Se añadió intercambio antifatiga para disponibilidades nocturnas contiguas alrededor de festivos.
+   - Los cambios parciales AM/PM de fin de semana descombinan únicamente el día afectado.
+   - Los endpoints de escritura mantienen `DocumentLock`, validación de revisión, auditoría y reaplicación de cambios manuales.
+
+4. **Formato y experiencia móvil**
+   - Se preserva A1:D4, se usan bordes negros en toda la cuadrícula y nombres con fuente dinámica entre 6 y 10 pt.
+   - Las disponibilidades entre semana usan `#d9d9d9`; solo el código `2` de disponibilidad nocturna es rojo. Sala 2 y EX1/EX2/EX3 permanecen negros.
+   - La app agrupa el nombre del médico con `rowSpan`, ofrece navegación histórica y reduce columnas de día a 28 px y filas a 22 px.
+
+5. **Rendimiento web**
+   - JSX y Tailwind permanecen precompilados; no se compilan en el navegador.
+   - Google Sign-In se carga bajo demanda, los recursos críticos están optimizados y las imágenes tienen dimensiones explícitas.
+   - Resultado final: TBT 0 ms, CLS 0, 157 KiB transferidos y Performance 94.
