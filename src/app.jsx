@@ -6,12 +6,12 @@ const { useState, useEffect, useRef, useMemo } = React;
         };
 
         const isRoomNotRequiredForType = (shiftType) => (
-            shiftType.includes("Nocturnos") || shiftType.includes("Disponibilidad") || shiftType.includes("Extendido")
+            shiftType === "Noche" || shiftType.includes("Nocturnos") || shiftType.includes("Disponibilidad") || shiftType.includes("Extendido")
         );
 
         const getAllowedDayTypes = (shiftType) => {
             if (!shiftType) return ['habil', 'sabado', 'domingo', 'festivo'];
-            if (shiftType.includes("Extendido Sabado")) return ['sabado'];
+            if ((shiftType.includes("Extendido Sabado") || shiftType.includes("Extendido Sábado"))) return ['sabado'];
             if (shiftType.includes("Extendido 1") || shiftType.includes("Extendido 2") || shiftType.includes("Extendido 3")) return ['habil'];
             if (shiftType.includes("Disponibilidad U2")) return ['domingo', 'festivo'];
             if (shiftType.includes("Disponibilidad AM") || shiftType.includes("Disponibilidad PM")) return ['habil'];
@@ -31,7 +31,7 @@ const { useState, useEffect, useRef, useMemo } = React;
             if (["P1", "P2", "P3", "P4", "P5", "P6", "P7", "U"].includes(room) && !isSundayOrHoliday) return "Solo disponible domingos y festivos.";
             if (["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 8", "Sala 9"].includes(room) && isSundayOrHoliday) return "No disponible domingos ni festivos.";
             if (room === "Sala Caderas" && !group.includes("caderas")) return "Solo para el grupo de Caderas.";
-            if (room === "Sala Sugarbaker" && !group.includes("sugarbaker")) return "Solo para el grupo de Sugarbaker.";
+            if ((room === "Sala Sugarbaker EPS" || room === "Sala Sugarbaker Prepagada") && !group.includes("sugarbaker")) return "Solo para el grupo de Sugarbaker.";
             if (room === "Sala Microcirugía" && !group.includes("microcirug")) return "Solo para el grupo de Microcirugía.";
             return "";
         };
@@ -69,7 +69,7 @@ const { useState, useEffect, useRef, useMemo } = React;
             "Fin de semana": ["Todo el día", "Fin de semana AM", "Fin de semana PM"],
             "Nocturnos": ["Noche"],
             "Disponibilidad": ["Disponibilidad AM", "Disponibilidad PM", "Disponibilidad Noche", "Disponibilidad U2"],
-            "Extendidos": ["Extendido 1", "Extendido 2", "Extendido 3", "Extendido Sabado"]
+            "Extendidos": ["Extendido 1", "Extendido 2", "Extendido 3", "Extendido Sábado"]
         };
 
         const DOCTOR_SCHEDULE_GROUPS = [
@@ -119,12 +119,19 @@ const { useState, useEffect, useRef, useMemo } = React;
 
         const getShiftTimeRange = (shiftType) => SHIFT_TIME_RANGES[formatShiftLabel(shiftType)] || null;
         const shiftRangesOverlap = (first, second) => Boolean(first && second && first.start < second.end && second.start < first.end);
+        const specialRoomScope = (room) => /Caderas|Sugarbaker/.test(room || "") ? room : "general";
+        const isConfirmedExtendedReplacement = (candidate, previous) => (
+            ["Noche", "Disponibilidad Noche"].includes(formatShiftLabel(candidate.type)) &&
+            /^Extendido [123]$/.test(formatShiftLabel(previous.type))
+        );
         const findScheduleConflict = (candidate, existingChanges) => {
             const candidateRange = getShiftTimeRange(candidate.type);
             if (!candidateRange || !candidate.person || !candidate.date) return null;
             return existingChanges.find(change => (
                 change.person === candidate.person &&
                 change.date === candidate.date &&
+                specialRoomScope(change.room) === specialRoomScope(candidate.room) &&
+                !isConfirmedExtendedReplacement(candidate, change) &&
                 shiftRangesOverlap(candidateRange, getShiftTimeRange(change.type))
             )) || null;
         };
@@ -220,7 +227,7 @@ const { useState, useEffect, useRef, useMemo } = React;
         const ROOMS_GROUPED = {
             "Puente Aranda": ["Sala A", "Sala B", "Sala C", "Sala D", "Sala E"],
             "Clínica Universitaria Colombia": ["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 7", "Sala 8", "Sala 9", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "U"],
-            "Salas de Excelencia": ["Sala Caderas", "Sala Sugarbaker", "Sala Microcirugía"]
+            "Salas de Excelencia": ["Sala Caderas", "Sala Sugarbaker EPS", "Sala Sugarbaker Prepagada", "Sala Microcirugía"]
         };
 
         const generateColombianHolidays = (startYear, yearsAhead) => {
@@ -861,10 +868,12 @@ const { useState, useEffect, useRef, useMemo } = React;
                                                     </td>}
                                                     <td className="border-b border-r border-black bg-white px-1 py-1 font-medium text-[7px] sm:text-[8px] text-slate-500 whitespace-normal" style={{ position: "sticky", left: "104px", zIndex: 20 }}>{row.label}</td>
                                                     {visibleDays.map(day => {
+                                                        if ((row.coveredDays || []).includes(day.day)) return null;
+                                                        const merged = (row.mergedDays || []).includes(day.day);
                                                         const value = row.values[day.day - 1] || "";
                                                         const manual = (row.manualDays || []).includes(day.day);
                                                         const red = isNightAvailability(value, row);
-                                                        return <td key={day.date} title={manual ? "Cambio realizado desde TurnoSync" : ""} className={`border-b border-r border-black text-center text-[9px] font-bold relative ${red ? "text-red-600" : "text-slate-800"} ${manual ? "ring-1 ring-inset ring-amber-500" : ""}`} style={{ background: cellBackground(day, row), height: "22px", minWidth: "28px" }}>{value}{manual && <span className="absolute right-0 top-0 w-1 h-1 rounded-full bg-amber-500" />}</td>;
+                                                        return <td key={day.date} rowSpan={merged ? 2 : 1} title={manual ? "Cambio realizado desde TurnoSync" : ""} className={`border-b border-r border-black text-center text-[9px] font-bold relative ${red ? "text-red-600" : "text-slate-800"} ${manual ? "ring-1 ring-inset ring-amber-500" : ""}`} style={{ background: cellBackground(day, row), height: "22px", minWidth: "28px" }}>{value}{manual && <span className="absolute right-0 top-0 w-1 h-1 rounded-full bg-amber-500" />}</td>;
                                                     })}
                                                 </tr>
                                             )))}
@@ -918,11 +927,11 @@ const { useState, useEffect, useRef, useMemo } = React;
             const scheduleConflict = activeLot ? findScheduleConflict({
                 person: activeLot.doctor,
                 date: draft.date,
-                type: draft.type
+                type: draft.type, room: draft.room
             }, sameDoctorChanges) : null;
             const globalRoomCollision = activeLot && activeLot.doctor && draft.date && draft.type && draft.room && !isRoomNotRequired
                 ? changes.find(change => (
-                    change.person !== activeLot.doctor &&
+                    change.person === activeLot.doctor &&
                     change.date === draft.date &&
                     change.type === draft.type &&
                     change.room === draft.room
@@ -1171,7 +1180,7 @@ const { useState, useEffect, useRef, useMemo } = React;
                     return;
                 }
                 if (globalRoomCollision) {
-                    const message = "Error de colisión: Esta sala ya fue asignada al " + formatDoctorFullName(globalRoomCollision.person) + " en esta misma fecha y jornada.";
+                    const message = "Este médico ya tiene un cambio con la misma sala, fecha y jornada en el borrador.";
                     setConflictMessage(message);
                     setToast({ message, type: "error" });
                     return;
@@ -1827,6 +1836,9 @@ const { useState, useEffect, useRef, useMemo } = React;
             const [shiftFieldErrors, setShiftFieldErrors] = useState({});
             const [individualValidationCycle, setIndividualValidationCycle] = useState(0);
             const [individualSubmitSummary, setIndividualSubmitSummary] = useState(null);
+            const [dashboardDecision, setDashboardDecision] = useState(null);
+            const dashboardDecisionRef = useRef(null);
+            const dashboardPreparedRef = useRef(null);
             const [toast, setToast] = useState(null);
             
             // NUEVOS ESTADOS PARA HISTORIAL Y CANCELACIÓN
@@ -2139,18 +2151,26 @@ const { useState, useEffect, useRef, useMemo } = React;
                 ))
             ));
 
+            const askDashboardDecision = (decision) => new Promise(resolve => {
+                dashboardDecisionRef.current = resolve;
+                setDashboardDecision(decision);
+            });
+
+            const finishDashboardDecision = (answer) => {
+                const resolve = dashboardDecisionRef.current;
+                dashboardDecisionRef.current = null;
+                setDashboardDecision(null);
+                if (resolve) resolve(answer);
+            };
+
             const buildDashboardChangePayload = (changes, mode, action) => {
                 const submissionId = mode + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
                 const submittedAt = new Date().toISOString();
                 return {
-                    action,
-                    solicitante: user.name,
-                    correoSolicitante: user.email,
-                    modo: mode,
-                    submissionId,
-                    cambios: changes.map(shift => ({
+                    action, solicitante: user.name, correoSolicitante: user.email, modo: mode, submissionId,
+                    cambios: changes.map((shift, index) => ({
+                        changeId: String(index + 1),
                         persona: shift.person,
-                        medicoOrigen: user.name,
                         medicoDestino: shift.person,
                         jornada: shift.type,
                         fecha: shift.date,
@@ -2164,15 +2184,54 @@ const { useState, useEffect, useRef, useMemo } = React;
             };
 
             const validateChangesOnDashboard = async (changes, mode = "individual") => {
-                const result = await backendPost(buildDashboardChangePayload(changes, mode, "checkDashboardCollision"));
-                if (result.status !== "success") throw new Error(result.message || "El cuadro de turnos rechazo el cambio");
-                return result;
+                dashboardPreparedRef.current = null;
+                const payload = buildDashboardChangePayload(changes, mode, "checkDashboardCollision");
+                // Each answer resolves one specific origin; no request may choose
+                // an arbitrary holder or use the signed-in user as its owner.
+                for (let attempt = 0; attempt <= changes.length; attempt += 1) {
+                    const result = await backendPost(payload);
+                    if (result.code === "AMBIGUOUS_SOURCE_SHIFT" && result.details?.candidates?.length) {
+                        const index = result.details.changeIndex;
+                        const choice = await askDashboardDecision({
+                            title: "Selecciona quién cede el turno",
+                            message: result.message + " Fecha: " + payload.cambios[index].fecha,
+                            candidates: result.details.candidates
+                        });
+                        if (!choice) throw new Error("El cambio no se envió. Puedes seguir editándolo.");
+                        payload.cambios[index].medicoOrigen = choice;
+                        continue;
+                    }
+                    if (result.status !== "success") throw new Error(result.message || "El cuadro de turnos rechazó el cambio.");
+                    (result.changes || []).forEach((change, index) => {
+                        payload.cambios[index].medicoOrigen = change.effectiveOrigin || change.origin;
+                        payload.cambios[index].expectedState = change.expectedState;
+                    });
+                    for (const warning of result.warnings || []) {
+                        const confirmed = await askDashboardDecision({
+                            title: "Confirma que el extendido quedó libre",
+                            message: warning.doctor + " · " + warning.date + ". " + warning.message,
+                            confirmation: "Confirmo que el extendido quedó libre"
+                        });
+                        if (!confirmed) throw new Error("El cambio no se envió. El extendido sigue sin modificar.");
+                        payload.cambios[warning.changeIndex].extendedConfirmed = true;
+                    }
+                    dashboardPreparedRef.current = { signature: JSON.stringify({ changes, mode }), payload };
+                    return result;
+                }
+                throw new Error("No se pudo identificar un titular único para cada cambio.");
             };
 
             const sendChangesToBackend = async (changes, mode = "individual") => {
-                const payload = buildDashboardChangePayload(changes, mode, "submitShiftChanges");
+                const signature = JSON.stringify({ changes, mode });
+                if (dashboardPreparedRef.current?.signature !== signature) await validateChangesOnDashboard(changes, mode);
+                const payload = { ...dashboardPreparedRef.current.payload, action: "submitShiftChanges" };
                 const result = await backendPost(payload);
-                if (result.status && result.status !== "success") throw new Error(result.message || "No se pudo guardar");
+                if (result.status !== "success") {
+                    dashboardPreparedRef.current = null;
+                    throw new Error(result.message || "No se pudo guardar.");
+                }
+                dashboardPreparedRef.current = null;
+                return result;
             };
 
             const refreshHistoryAfterWrite = () => {
@@ -2316,7 +2375,7 @@ const { useState, useEffect, useRef, useMemo } = React;
                     setSelectedHistory([]);
                     refreshHistoryAfterWrite();
                 } catch (error) {
-                    setToast({ message: "Error al cancelar los turnos.", type: "error" });
+                    setToast({ message: error.message || "Error al cancelar los turnos.", type: "error" });
                 } finally {
                     setIsCancelling(false);
                 }
@@ -2520,6 +2579,22 @@ const { useState, useEffect, useRef, useMemo } = React;
 
                     {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
+                    {dashboardDecision && (
+                        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+                            <div role="dialog" aria-modal="true" aria-labelledby="dashboard-decision-title" className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+                                <h3 id="dashboard-decision-title" className="text-lg font-bold text-slate-800 mb-2">{dashboardDecision.title}</h3>
+                                <p className="text-sm text-slate-600 mb-5">{dashboardDecision.message}</p>
+                                <div className="flex flex-col gap-3">
+                                    {dashboardDecision.candidates?.map(candidate => (
+                                        <button type="button" key={candidate.id} onClick={() => finishDashboardDecision(candidate.name)} className="py-2.5 px-3 bg-keralty-blue text-white rounded-lg font-medium">{formatDoctorFullName(candidate.name)}</button>
+                                    ))}
+                                    {dashboardDecision.confirmation && <button type="button" onClick={() => finishDashboardDecision(true)} className="py-2.5 px-3 bg-keralty-blue text-white rounded-lg font-medium">{dashboardDecision.confirmation}</button>}
+                                    <button autoFocus type="button" onClick={() => finishDashboardDecision(null)} className="py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium">Cancelar</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Modal para cambiar contraseña */}
                     {showPasswordModal && (
                         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
@@ -2593,12 +2668,12 @@ const { useState, useEffect, useRef, useMemo } = React;
                                 <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
                                     <IconAlert size={32} />
                                 </div>
-                                <h3 className="text-xl font-bold text-slate-800 mb-2">¿Eliminar {selectedHistory.length} cambio(s)?</h3>
-                                <p className="text-sm text-slate-500 mb-6">Esta acción no se puede deshacer. Se enviará un correo a los médicos involucrados y al administrador indicando que anulaste el turno.</p>
+                                <h3 className="text-xl font-bold text-slate-800 mb-2">¿Cancelar {selectedHistory.length} cambio(s)?</h3>
+                                <p className="text-sm text-slate-500 mb-6">Se restaurarán las asignaciones anteriores en el cuadro de turnos. Si existe un cambio posterior sobre el mismo turno, primero tendrás que cancelarlo. Al finalizar se notificará la cancelación.</p>
                                 <div className="flex space-x-3">
                                     <button onClick={() => setShowCancelModal(false)} disabled={isCancelling} className="flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-medium hover:bg-slate-200 transition-colors disabled:opacity-50">Mantener</button>
                                     <button onClick={executeCancel} disabled={isCancelling} className="flex-1 py-2.5 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 transition-colors flex justify-center items-center">
-                                        {isCancelling ? <IconRefresh className="animate-spin h-5 w-5" /> : "Sí, Eliminar"}
+                                        {isCancelling ? <IconRefresh className="animate-spin h-5 w-5" /> : "Sí, cancelar"}
                                     </button>
                                 </div>
                             </div>
