@@ -21,11 +21,15 @@ const { useState, useEffect, useRef, useMemo } = React;
         };
 
         const getRoomRestriction = (room, date, doctorName, doctorsList) => {
-            if (!room || !date) return "";
+            if (!room) return "";
             const dayType = getDayType(date);
             const isSundayOrHoliday = dayType === 'domingo' || dayType === 'festivo';
-            const doctor = doctorsList.find(item => item.name === doctorName) || {};
-            const group = (doctor.group || "").toLowerCase();
+            const normalizedName = String(doctorName || "").trim().toLocaleUpperCase("es");
+            const doctor = doctorsList.find(item => String(item.name || "").trim().toLocaleUpperCase("es") === normalizedName) || {};
+            const group = String(doctor.group || doctor.sourceGroup || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+            if (room === "Sala Caderas") return group.includes("caderas") ? "" : "Solo para el grupo de Caderas.";
+            if (room === "Sala Sugarbaker EPS" || room === "Sala Sugarbaker Prepagada") return group.includes("sugarbaker") ? "" : "Solo para el grupo de Sugarbaker.";
+            if (!date) return "";
 
             if (room === "Sala 7" && dayType !== 'sabado') return "Solo disponible los sábados.";
             if (["P1", "P2", "P3", "P4", "P5", "P6", "P7", "U"].includes(room) && !isSundayOrHoliday) return "Solo disponible domingos y festivos.";
@@ -1829,6 +1833,9 @@ const { useState, useEffect, useRef, useMemo } = React;
             const [passwordData, setPasswordData] = useState({ old: '', new: '', confirm: '' });
             const [showEmailLogin, setShowEmailLogin] = useState(false);
             const [googleSignInState, setGoogleSignInState] = useState("idle");
+            const googleButtonRef = useRef(null);
+            const googleInitializedRef = useRef(false);
+            const googleCallbackRef = useRef(null);
             
             const [shifts, setShifts] = useState([{ id: '1', person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]);
             const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1877,53 +1884,87 @@ const { useState, useEffect, useRef, useMemo } = React;
                 return () => { clearTimeout(timer1); clearTimeout(timer2); };
             }, []);
 
-            const activateGoogleSignIn = () => {
-                if (googleSignInState !== "idle") return;
-                setGoogleSignInState("loading");
-                const renderGoogleButton = () => {
-                    const container = document.getElementById("googleSignInDiv");
-                    if (!window.google || !container) {
-                        setGoogleSignInState("idle");
-                        return;
-                    }
-                    window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleResponse });
-                    window.google.accounts.id.renderButton(container, { theme: "outline", size: "large", width: "100%", shape: "rectangular" });
-                };
-                if (window.google) {
-                    window.setTimeout(renderGoogleButton, 0);
-                    return;
-                }
-                const script = document.createElement("script");
-                script.id = "google-gsi-client";
-                script.src = "https://accounts.google.com/gsi/client";
-                script.async = true;
-                script.onload = renderGoogleButton;
-                script.onerror = () => {
-                    setGoogleSignInState("idle");
-                    setToast({ message: "No fue posible cargar el acceso con Google.", type: "error" });
-                };
-                document.body.appendChild(script);
-            };
+            const activateGoogleSignIn = () => setGoogleSignInState("loading");
 
             useEffect(() => {
-                if (!user || doctorsLoadedRef.current) return;
+                if (user || googleSignInState !== "loading") return;
+                let disposed = false;
+                const fail = () => {
+                    if (disposed) return;
+                    if (!window.google?.accounts?.id) document.getElementById("google-gsi-client")?.remove();
+                    setGoogleSignInState("idle");
+                    setToast({ message: "No fue posible cargar el acceso con Google. Puedes reintentar o ingresar con tu correo.", type: "error" });
+                };
+                const render = () => {
+                    if (disposed) return;
+                    try {
+                        const api = window.google?.accounts?.id;
+                        const container = googleButtonRef.current;
+                        if (!api || !container) return fail();
+                        if (!googleInitializedRef.current) {
+                            api.initialize({ client_id: GOOGLE_CLIENT_ID, callback: response => googleCallbackRef.current?.(response) });
+                            googleInitializedRef.current = true;
+                        }
+                        container.replaceChildren();
+                        api.renderButton(container, { theme: "outline", size: "large", width: Math.min(container.clientWidth || 300, 400), shape: "rectangular" });
+                        setGoogleSignInState("ready");
+                    } catch { fail(); }
+                };
+                let script = document.getElementById("google-gsi-client");
+                let timer;
+                if (window.google?.accounts?.id) {
+                    render();
+                } else {
+                    if (!script) {
+                        script = document.createElement("script");
+                        script.id = "google-gsi-client";
+                        script.src = "https://accounts.google.com/gsi/client";
+                        script.async = true;
+                        document.body.appendChild(script);
+                    }
+                    script.addEventListener("load", render);
+                    script.addEventListener("error", fail);
+                    timer = window.setTimeout(fail, 15000);
+                }
+                return () => {
+                    disposed = true;
+                    window.clearTimeout(timer);
+                    script?.removeEventListener("load", render);
+                    script?.removeEventListener("error", fail);
+                };
+            }, [user, googleSignInState]);
+
+            useEffect(() => {
+                if (!user) return;
+                let disposed = false;
+                let latestRead = 0;
                 doctorsLoadedRef.current = true;
-                const timer = window.setTimeout(async () => {
+                const loadDoctors = async () => {
+                    const read = ++latestRead;
                     setIsLoadingDoctors(true);
                     try {
                         const result = await backendGet({ action: "getDoctors" });
+                        if (disposed || read !== latestRead) return;
                         if (result.status === "success") setDoctorsList(result.data);
                         else throw new Error(result.message);
                     } catch (error) {
+                        if (disposed || read !== latestRead) return;
                         doctorsLoadedRef.current = false;
                         setDoctorsList([]);
                         setToast({ message: "No se pudo cargar Setup_Medicos. Reintenta antes de registrar cambios.", type: "error" });
                     } finally {
-                        setIsLoadingDoctors(false);
+                        if (!disposed && read === latestRead) setIsLoadingDoctors(false);
                     }
-                }, 0);
-                return () => window.clearTimeout(timer);
-            }, [user]);
+                };
+                const timer = window.setTimeout(loadDoctors, 0);
+                window.addEventListener("focus", loadDoctors);
+                return () => {
+                    disposed = true;
+                    doctorsLoadedRef.current = false;
+                    window.clearTimeout(timer);
+                    window.removeEventListener("focus", loadDoctors);
+                };
+            }, [user, activeView]);
 
             useEffect(() => {
                 if (!user || motionEnabled) return;
@@ -2105,10 +2146,17 @@ const { useState, useEffect, useRef, useMemo } = React;
                 }
             };
 
+            googleCallbackRef.current = handleGoogleResponse;
+
             const completeLogout = () => {
                 setShowLogoutWarning(false);
                 setHasUnsavedMultipleChanges(false);
                 setUser(null);
+                setGoogleSignInState("idle");
+                doctorsLoadedRef.current = false;
+                setDoctorsList([]);
+                setIsLoadingDoctors(false);
+                dashboardPreparedRef.current = null;
                 setShifts([{ id: '1', person: '', type: '', date: '', room: '', repeatToOtherDates: false, additionalDates: [] }]);
                 setBatchChanges([]);
                 setActiveView('home');
@@ -2504,12 +2552,10 @@ const { useState, useEffect, useRef, useMemo } = React;
                                     <div className="bg-blue-50 p-4 rounded-lg text-sm text-keralty-blue text-left border border-blue-100"><p className="font-semibold mb-1 flex items-center"><IconAlert /> <span className="ml-2">Acceso Restringido</span></p>Inicia sesión para acceder al sistema.</div>
                                     <div className="flex justify-center min-h-[44px]">
                                         {isLoggingIn ? <button disabled className="w-full flex items-center justify-center py-3.5 px-4 rounded-xl shadow-sm text-sm font-medium text-white bg-slate-400"><IconRefresh className="animate-spin mr-2" /> Validando...</button> : (
-                                            <div id="googleSignInDiv" className="w-full flex justify-center">
-                                                {googleSignInState === "idle" ? (
-                                                    <button type="button" onClick={activateGoogleSignIn} className="w-full flex items-center justify-center py-3 px-4 rounded-xl border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50">
-                                                        Continuar con Google
-                                                    </button>
-                                                ) : <span className="inline-flex items-center py-3 text-sm text-slate-500"><IconRefresh className="animate-spin mr-2" /> Cargando acceso de Google...</span>}
+                                            <div className="w-full flex flex-col items-center gap-2">
+                                                <div id="googleSignInDiv" ref={googleButtonRef} className="w-full flex justify-center" />
+                                                {googleSignInState === "idle" && <button type="button" onClick={activateGoogleSignIn} className="w-full flex items-center justify-center py-3 px-4 rounded-xl border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50">Continuar con Google</button>}
+                                                {googleSignInState === "loading" && <span className="inline-flex items-center py-3 text-sm text-slate-500"><IconRefresh className="animate-spin mr-2" /> Cargando acceso de Google...</span>}
                                             </div>
                                         )}
                                     </div>
