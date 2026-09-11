@@ -36,7 +36,6 @@ const { useState, useEffect, useRef, useMemo } = React;
             if (["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 8", "Sala 9"].includes(room) && isSundayOrHoliday) return "No disponible domingos ni festivos.";
             if (room === "Sala Caderas" && !group.includes("caderas")) return "Solo para el grupo de Caderas.";
             if ((room === "Sala Sugarbaker EPS" || room === "Sala Sugarbaker Prepagada") && !group.includes("sugarbaker")) return "Solo para el grupo de Sugarbaker.";
-            if (room === "Sala Microcirugía" && !group.includes("microcirug")) return "Solo para el grupo de Microcirugía.";
             return "";
         };
 
@@ -231,7 +230,7 @@ const { useState, useEffect, useRef, useMemo } = React;
         const ROOMS_GROUPED = {
             "Puente Aranda": ["Sala A", "Sala B", "Sala C", "Sala D", "Sala E"],
             "Clínica Universitaria Colombia": ["Sala CS", "Sala 2", "Sala 3", "Sala 4", "Sala 5", "Sala 6", "Sala 7", "Sala 8", "Sala 9", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "U"],
-            "Salas de Excelencia": ["Sala Caderas", "Sala Sugarbaker EPS", "Sala Sugarbaker Prepagada", "Sala Microcirugía"]
+            "Salas de Excelencia": ["Sala Caderas", "Sala Sugarbaker EPS", "Sala Sugarbaker Prepagada"]
         };
 
         const generateColombianHolidays = (startYear, yearsAhead) => {
@@ -709,6 +708,65 @@ const { useState, useEffect, useRef, useMemo } = React;
             </section>
         );
 
+        const INITIAL_OPERATIONAL_CONSIDERATIONS = `> CONSIDERACIONES OPERATIVAS:
+
+**PROTOCOLO DE VALIDACIÓN**
+
+*[Registre a continuación las observaciones pertinentes según corresponda]*
+
+• **Cirugía Cardiovascular:** Validar en bandeja de entrada del correo de ayudantes la existencia de solicitudes de ayudantía para el servicio de Cirugía Cardiovascular a la fecha. En caso afirmativo cubrir con la primera sala libre disponible teniendo como prioridad la misma sede y como último recurso el médico disponible.
+
+• **Procedimientos Menores:** Verificar si existen intervenciones programadas de Cirugía de Mano o pacientes de Medicina Prepagada de cualquier especialidad. En caso afirmativo cubrir con la primera sala libre disponible teniendo como prioridad la misma sede y como último recurso el médico disponible.
+
+• **Cambios por grupos de excelencia:** Verificar si existen intervenciones programadas de grupos de excelencia y en caso afirmativo informar el cambio de salas correspondiente según sea el caso.
+
+• **Novedades de Personal:** Consignar reportes pendientes de ausentismo laboral (incapacidades médicas, licencias o calamidades). En caso de ser necesario cubrir con la primera sala libre disponible teniendo como prioridad la misma sede y como último recurso el médico disponible.
+
+• **Salas Libres:** Notificar las salas libres en ambas sedes exclusivamente cuando no existan demandas asistenciales o coberturas pendientes por suplir con dichas salas.
+
+• **Otros:** Notificar cualquier otro cambio operativo pertinente para conocimiento general del grupo.`;
+
+        const TomorrowOrganization = ({ setToast }) => {
+            const [organization, setOrganization] = useState(null);
+            const [organizationText, setOrganizationText] = useState("");
+            const [considerations, setConsiderations] = useState(INITIAL_OPERATIONAL_CONSIDERATIONS);
+            const [shareUrl, setShareUrl] = useState("");
+            const [loading, setLoading] = useState(false);
+            const generate = async () => {
+                setLoading(true);
+                setOrganization(null);
+                setShareUrl("");
+                try {
+                    const result = await backendGet({ action: "getTomorrowOrganization" });
+                    if (result.status !== "success") throw new Error(result.message || "No fue posible generar la organización.");
+                    setOrganization(result);
+                    setOrganizationText(result.text || "");
+                } catch (error) {
+                    setToast({ message: error.message, type: "error" });
+                } finally { setLoading(false); }
+            };
+            const saveAndShare = () => {
+                const text = organizationText + (considerations !== "" ? "\n\n" + considerations : "");
+                const url = "https://wa.me/?text=" + encodeURIComponent(text);
+                setShareUrl(url);
+                window.open(url, "_blank", "noopener,noreferrer");
+            };
+            return <section className="mb-3" aria-label="Organización para mañana">
+                <button type="button" onClick={generate} disabled={loading} className="w-full sm:w-auto px-4 py-3 rounded-lg bg-keralty-blue text-white text-xs font-bold disabled:opacity-60">{loading ? "GENERANDO ORGANIZACIÓN…" : "GENERAR ORGANIZACIÓN PARA MAÑANA"}</button>
+                {organization && <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                    <p className="text-sm font-bold text-keralty-blue">{organization.heading}</p>
+                    <label htmlFor="tomorrow-organization" className="block text-sm font-bold text-slate-700">Organización generada</label>
+                    <textarea id="tomorrow-organization" value={organizationText} onChange={event => { setOrganizationText(event.target.value); setShareUrl(""); }} rows={18} className="block w-full rounded-lg border border-slate-300 p-3 text-sm leading-relaxed resize-y" />
+                    <h3 className="text-sm font-bold text-slate-700">Consideraciones operativas</h3>
+                    <label htmlFor="tomorrow-considerations" className="block text-xs font-bold text-slate-600">CONSIDERACIONES OPERATIVAS</label>
+                    <textarea id="tomorrow-considerations" value={considerations} onChange={event => { setConsiderations(event.target.value); setShareUrl(""); }} rows={12} className="block w-full rounded-lg border border-slate-300 p-3 text-sm leading-relaxed resize-y" />
+                    <p className="text-xs text-slate-500">Revisa el texto. WhatsApp se abrirá para que elijas el chat o grupo y confirmes el envío.</p>
+                    <button type="button" onClick={saveAndShare} disabled={!organizationText.trim()} className="w-full sm:w-auto px-4 py-3 rounded-lg bg-keralty-green text-white text-xs font-bold disabled:opacity-60">GUARDAR Y ENVIAR</button>
+                    {shareUrl && <a href={shareUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-keralty-blue underline">Abrir el mensaje preparado en WhatsApp</a>}
+                </div>}
+            </section>;
+        };
+
         const ScheduleDashboard = ({ onBack, setToast }) => {
             const [dashboard, setDashboard] = useState(null);
             const [isLoading, setIsLoading] = useState(true);
@@ -843,10 +901,14 @@ const { useState, useEffect, useRef, useMemo } = React;
 
                         <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-3 text-[10px] sm:text-xs text-slate-600">
                             <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={hideWeekends} onChange={event => setHideWeekends(event.target.checked)} className="rounded text-keralty-blue" /> Ocultar fines de semana</label>
+                            <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={hideWeekends} onChange={event => setHideWeekends(event.target.checked)} className="rounded text-keralty-blue" /> Ocultar semanas</label>
                             <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={specialOnly} onChange={event => setSpecialOnly(event.target.checked)} className="rounded text-keralty-blue" /> Solo grupos especiales</label>
                             <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm border-2 border-amber-500 bg-white"></span> Cambio desde TurnoSync</span>
                             <span className="inline-flex items-center gap-1.5"><span className="font-bold text-red-600">2</span> Disponibilidad noche</span>
+                            <span className="inline-flex items-center gap-1.5"><span className="font-bold">X</span> = disponibilidad en el día</span>
                         </div>
+
+                        <TomorrowOrganization setToast={setToast} />
 
                         {isLoading ? (
                             <div className="py-16 text-center text-slate-500"><div className="loading-dots mb-3"><span></span><span></span><span></span></div><p className="text-sm">Cargando cuadro mensual...</p></div>
