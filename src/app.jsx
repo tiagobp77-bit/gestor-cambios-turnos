@@ -44,26 +44,42 @@ const { useState, useEffect, useRef, useMemo } = React;
         const BACKEND_URL = "/api/apps-script";
         const GOOGLE_CLIENT_ID = "984259317461-jdt2jq6fv654n8lkn6347f846e04s0hl.apps.googleusercontent.com";
 
-        const backendGet = async (params) => {
+        const backendRequest = async (url, options, action, timeoutMs) => {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            let response;
+            try {
+                response = await fetch(url, { ...options, signal: controller.signal });
+                let result;
+                try { result = await response.json(); }
+                catch (cause) {
+                    if (controller.signal.aborted) throw cause;
+                    const error = new Error("El servicio devolvió una respuesta inesperada. No se pudo confirmar el resultado.");
+                    error.code = "INVALID_RESPONSE"; throw error;
+                }
+                if (!response.ok) {
+                    const knownCode = ["UPSTREAM_TIMEOUT", "UPSTREAM_CONNECTION", "UPSTREAM_AUTH", "UPSTREAM_HTTP", "UPSTREAM_INVALID_JSON", "UPSTREAM_INVALID_RESPONSE"].includes(result?.code);
+                    const error = new Error(knownCode ? result.message : response.status === 401 || response.status === 403 ? "El servicio rechazó el acceso. Revisa tu sesión o contacta al administrador." : "El servicio no pudo completar la solicitud. No se pudo confirmar el resultado.");
+                    error.code = knownCode ? result.code : "HTTP_" + response.status;
+                    error.requestId = result?.requestId; throw error;
+                }
+                if (!result || !["success", "error", "pending"].includes(result.status)) { const error = new Error("El servicio no confirmó el resultado de la operación."); error.code = "INVALID_RESPONSE"; throw error; }
+                return result;
+            } catch (cause) {
+                const code = controller.signal.aborted ? "CLIENT_TIMEOUT" : cause.code || "CONNECTION_ERROR";
+                console.error("TurnoSync request failed", { action, code, status: response?.status, requestId: cause.requestId || response?.headers?.get("X-TurnoSync-Request-Id") });
+                if (cause.code && !controller.signal.aborted) throw cause;
+                const error = new Error(controller.signal.aborted ? "La solicitud tardó demasiado. No se pudo confirmar el resultado. Puedes volver a comprobar el mismo lote." : "Se interrumpió la conexión. No se pudo confirmar el resultado. Conservamos los cambios para que puedas volver a comprobarlos.");
+                error.code = code; throw error;
+            } finally { clearTimeout(timer); }
+        };
+        const backendGet = params => {
             const query = params instanceof URLSearchParams ? params : new URLSearchParams(params);
-            const response = await fetch(BACKEND_URL + "?" + query.toString(), {
-                method: "GET",
-                headers: { "Accept": "application/json" },
-                cache: "no-store"
-            });
-            if (!response.ok) throw new Error("Backend no disponible");
-            return response.json();
+            return backendRequest(BACKEND_URL + "?" + query.toString(), { method: "GET", headers: { Accept: "application/json" }, cache: "no-store" }, query.get("action"), 280000);
         };
-
-        const backendPost = async (payload) => {
-            const response = await fetch(BACKEND_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Accept": "application/json" },
-                body: JSON.stringify(payload)
-            });
-            if (!response.ok) throw new Error("Backend no disponible");
-            return response.json();
-        };
+        const backendPost = payload => backendRequest(BACKEND_URL, {
+            method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(payload)
+        }, payload.action, payload.action === "checkDashboardCollision" ? 90000 : 280000);
 
         const ALLOWED_EMAILS = ["admin@clinica.com", "tiagobp77@gmail.com", "NUEVO_CORREO@gmail.com"];
 
@@ -123,10 +139,6 @@ const { useState, useEffect, useRef, useMemo } = React;
         const getShiftTimeRange = (shiftType) => SHIFT_TIME_RANGES[formatShiftLabel(shiftType)] || null;
         const shiftRangesOverlap = (first, second) => Boolean(first && second && first.start < second.end && second.start < first.end);
         const specialRoomScope = (room) => /Caderas|Sugarbaker/.test(room || "") ? room : "general";
-        const isConfirmedExtendedReplacement = (candidate, previous) => (
-            ["Noche", "Disponibilidad Noche"].includes(formatShiftLabel(candidate.type)) &&
-            /^Extendido [123]$/.test(formatShiftLabel(previous.type))
-        );
         const findScheduleConflict = (candidate, existingChanges) => {
             const candidateRange = getShiftTimeRange(candidate.type);
             if (!candidateRange || !candidate.person || !candidate.date) return null;
@@ -134,16 +146,31 @@ const { useState, useEffect, useRef, useMemo } = React;
                 change.person === candidate.person &&
                 change.date === candidate.date &&
                 specialRoomScope(change.room) === specialRoomScope(candidate.room) &&
-                !isConfirmedExtendedReplacement(candidate, change) &&
                 shiftRangesOverlap(candidateRange, getShiftTimeRange(change.type))
             )) || null;
         };
-        const findFirstScheduleConflict = (changes) => {
-            for (let index = 0; index < changes.length; index += 1) {
-                const previous = findScheduleConflict(changes[index], changes.slice(0, index));
-                if (previous) return { candidate: changes[index], previous };
-            }
-            return null;
+        const collectBatchConflicts = changes => {
+            const groups = new Map();
+            const normalize = value => String(value || "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+            changes.forEach((change, index) => {
+                const range = getShiftTimeRange(change.type);
+                if (!range || !change.date || !change.person) return;
+                const slots = [["AM", 7, 13], ["PM", 13, 19], ["NOCHE", 19, 31]].filter(([,start,end]) => range.start < end && start < range.end).map(([slot]) => slot);
+                slots.forEach(slot => {
+                    const entries = [{ kind: "doctor", value: normalize(change.person) + "::" + specialRoomScope(change.room) }];
+                    if (!isRoomNotRequiredForType(change.type) && change.room) entries.push({ kind: "room", value: normalize(change.room).replace(/^SALA\s+/, "") });
+                    entries.forEach(entry => {
+                        const key = JSON.stringify([entry.kind, change.date, entry.value, slot]);
+                        if (!groups.has(key)) groups.set(key, { kind: entry.kind, date: change.date, room: change.room, slot, changes: [] });
+                        groups.get(key).changes.push({ index, doctor: change.person });
+                    });
+                });
+            });
+            return [...groups.values()].filter(group => group.changes.length > 1).map(group => ({
+                code: group.kind === "room" ? "BATCH_ROOM_COLLISION" : "BATCH_DOCTOR_COLLISION",
+                message: group.kind === "room" ? "Asignaste esta misma sala y jornada a varios cambios. Corrige los cambios antes de continuar." : "Estos cambios asignan actividades simultáneas al mismo médico. Corrige los cambios antes de continuar.",
+                details: { date: group.date, room: group.kind === "room" ? group.room : "", slots: [group.slot], doctors: group.changes.map(change => change.doctor), changeIndices: group.changes.map(change => change.index) }
+            }));
         };
 
         const getBogotaTodayString = () => {
@@ -821,6 +848,36 @@ const { useState, useEffect, useRef, useMemo } = React;
             </section>;
         };
 
+        const formatCollisionAssignment = item => {
+            const label = item.kind === "availability" ? "Disponibilidad" : (item.kind === "room" ? "Sala " : "") + item.code;
+            return label + " (" + item.slots.join("/").replace("NIGHT", "NOCHE") + ")";
+        };
+        const collisionRestrictionMessage = conflict => {
+            if ((conflict.assignments || []).some(item => ["availability", "nightAvailability", "u2"].includes(item.kind))) return "Las disponibilidades no pueden considerarse libres en ningún caso. Este cruce no puede validarse mediante la excepción por sala libre. Debes corregir la fecha o, en su defecto, cambiar primero la disponibilidad antes de realizar un cambio en esta fecha.";
+            if ((conflict.assignments || []).some(item => item.kind === "night")) return "Los turnos de noche no pueden considerarse libres en ningún caso. Este cruce no puede validarse mediante la excepción por sala libre. Debes corregir la fecha o, en su defecto, cambiar primero el turno de noche antes de realizar un cambio en esta fecha.";
+            return "Este cruce requiere corregir el cambio; no admite la excepción por sala libre.";
+        };
+
+        const DashboardLoading = ({ phase }) => {
+            const dialogRef = useRef(null);
+            useEffect(() => {
+                const previous = document.activeElement;
+                const overflow = document.body.style.overflow;
+                document.body.style.overflow = "hidden";
+                dialogRef.current?.focus();
+                const preventLeave = event => { event.preventDefault(); event.returnValue = ""; };
+                window.addEventListener("beforeunload", preventLeave);
+                return () => { document.body.style.overflow = overflow; window.removeEventListener("beforeunload", preventLeave); previous?.focus?.(); };
+            }, []);
+            return <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4" style={{ zIndex: 100 }}>
+                <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="dashboard-loading-title" aria-describedby="dashboard-loading-message" aria-busy="true" onKeyDown={event => { if (["Tab", "Escape"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); } }} className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 text-center" style={{ maxHeight: "90dvh", overflowY: "auto" }}>
+                    <div className="loading-dots mb-3" aria-hidden="true"><span></span><span></span><span></span></div>
+                    <h3 id="dashboard-loading-title" className="text-lg font-bold text-keralty-blue mb-2">{phase === "applying" ? "Aplicando cambios" : "Validando cambios"}</h3>
+                    <p id="dashboard-loading-message" className="text-sm text-slate-600" role="status">{phase === "applying" ? "TurnoSync está enviando los cambios y actualizando el cuadro de turnos." : "TurnoSync está verificando el cuadro de turnos, leyendo las asignaciones y buscando posibles cruces. Esto puede tardar unos momentos."}</p>
+                </div>
+            </div>;
+        };
+
         const ScheduleDashboard = ({ onBack, setToast }) => {
             const [dashboard, setDashboard] = useState(null);
             const [isLoading, setIsLoading] = useState(true);
@@ -830,6 +887,7 @@ const { useState, useEffect, useRef, useMemo } = React;
             const [doctorSearch, setDoctorSearch] = useState("");
             const [hideWeekends, setHideWeekends] = useState(false);
             const [specialOnly, setSpecialOnly] = useState(false);
+            const [isCollapsed, setIsCollapsed] = useState(false);
 
             const loadDashboard = async (month = selectedMonth) => {
                 setIsLoading(true);
@@ -912,19 +970,23 @@ const { useState, useEffect, useRef, useMemo } = React;
             };
 
             return (
+                <div className="space-y-4">
                 <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                    <div className="bg-keralty-blue px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
-                        <div className="flex items-center min-w-0">
+                    <div className="bg-keralty-blue px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex items-center min-w-0" style={{ minWidth: "180px" }}>
                             <span className="text-keralty-green mr-2 shrink-0"><IconLayout /></span>
                             <div className="min-w-0">
                                 <h2 className="text-lg font-semibold text-white truncate">Cuadro de Turnos</h2>
                                 {dashboard && <p className="text-xs text-blue-100 truncate">{dashboard.monthName} {dashboard.month.slice(0, 4)} · revisión {dashboard.revision}</p>}
                             </div>
                         </div>
-                        <button type="button" onClick={onBack} className="text-sm text-white/90 hover:text-white font-medium shrink-0">Volver</button>
+                        <div className="flex items-center gap-3 shrink-0">
+                            {dashboard && <button type="button" onClick={() => setIsCollapsed(value => !value)} aria-expanded={!isCollapsed} aria-controls="schedule-content" className="text-xs text-white font-semibold rounded-lg border border-white/30 px-3 py-2">{isCollapsed ? "Mostrar cuadro ▾" : "Ocultar cuadro ▴"}</button>}
+                            <button type="button" onClick={onBack} className="text-sm text-white/90 hover:text-white font-medium shrink-0">Volver</button>
+                        </div>
                     </div>
 
-                    <div className="p-2 sm:p-4 bg-slate-50">
+                    <div id="schedule-content" hidden={isCollapsed} className="p-2 sm:p-4 bg-slate-50">
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 mb-3">
                             <label className="text-xs font-semibold text-slate-600">Mes
                                 <span className="mt-1 flex items-stretch">
@@ -961,8 +1023,6 @@ const { useState, useEffect, useRef, useMemo } = React;
                             <span className="inline-flex items-center gap-1.5"><span className="font-bold text-red-600">2</span> Disponibilidad noche</span>
                             <span className="inline-flex items-center gap-1.5"><span className="font-bold">X</span> = disponibilidad en el día</span>
                         </div>
-
-                        <TomorrowOrganization setToast={setToast} />
 
                         {isLoading ? (
                             <div className="py-16 text-center text-slate-500"><div className="loading-dots mb-3"><span></span><span></span><span></span></div><p className="text-sm">Cargando cuadro mensual...</p></div>
@@ -1006,6 +1066,11 @@ const { useState, useEffect, useRef, useMemo } = React;
                         )}
                     </div>
                 </section>
+                <section className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden" aria-label="Organización diaria">
+                    <div className="px-4 sm:px-6 py-4 border-b border-slate-200"><h2 className="text-lg font-semibold text-keralty-blue">Organización para mañana</h2><p className="text-xs text-slate-500 mt-1">Prepara la organización diaria y revisa el protocolo de validación.</p></div>
+                    <div className="p-4 sm:p-6"><TomorrowOrganization setToast={setToast} /></div>
+                </section>
+                </div>
             );
         };
 
@@ -1962,6 +2027,15 @@ const { useState, useEffect, useRef, useMemo } = React;
             const [individualSubmitSummary, setIndividualSubmitSummary] = useState(null);
             const [dashboardDecision, setDashboardDecision] = useState(null);
             const dashboardDecisionRef = useRef(null);
+            const [dashboardPhase, setDashboardPhase] = useState(null);
+            const dashboardValidationRef = useRef(null);
+            const dashboardSendRef = useRef(null);
+            const submissionAttemptRef = useRef(null);
+            const dashboardRequest = async (payload, phase) => {
+                setDashboardPhase(phase);
+                try { return await backendPost(payload); }
+                finally { setDashboardPhase(null); }
+            };
             const dashboardPreparedRef = useRef(null);
             const [toast, setToast] = useState(null);
             
@@ -2348,13 +2422,29 @@ const { useState, useEffect, useRef, useMemo } = React;
                 };
             };
 
-            const validateChangesOnDashboard = async (changes, mode = "individual") => {
+            const validateChangesOnDashboard = (changes, mode = "individual") => {
+                if (dashboardValidationRef.current) return dashboardValidationRef.current;
+                const operation = performDashboardValidation(changes, mode);
+                dashboardValidationRef.current = operation.finally(() => { dashboardValidationRef.current = null; });
+                return dashboardValidationRef.current;
+            };
+
+            const performDashboardValidation = async (changes, mode) => {
                 dashboardPreparedRef.current = null;
-                const payload = buildDashboardChangePayload(changes, mode, "checkDashboardCollision");
+                const internalErrors = collectBatchConflicts(changes);
+                if (internalErrors.length) {
+                    await askDashboardDecision({ title: "Conflicto entre cambios", message: "Revisa todos los conflictos del lote. No admiten excepción por sala libre y no se ha enviado ningún cambio.", errors: internalErrors, cancelLabel: "CORREGIR CAMBIO" });
+                    throw new Error("Corrige los conflictos entre los cambios antes de continuar.");
+                }
+                const signature = JSON.stringify({ changes, mode });
+                const pending = submissionAttemptRef.current;
+                const payload = pending?.signature === signature
+                    ? { ...pending.payload, action: "checkDashboardCollision" }
+                    : buildDashboardChangePayload(changes, mode, "checkDashboardCollision");
                 // Each answer resolves one specific origin; no request may choose
                 // an arbitrary holder or use the signed-in user as its owner.
                 for (let attempt = 0; attempt <= changes.length * 2 + 2; attempt += 1) {
-                    const result = await backendPost(payload);
+                    const result = await dashboardRequest(payload, "validating");
                     const ambiguity = result.code === "AMBIGUOUS_SOURCE_SHIFT" ? result : (result.details?.errors || []).find(error => error.code === "AMBIGUOUS_SOURCE_SHIFT");
                     if (ambiguity?.details?.candidates?.length) {
                         const index = ambiguity.details.changeIndex;
@@ -2372,7 +2462,7 @@ const { useState, useEffect, useRef, useMemo } = React;
                         const conflicts = result.details.conflicts;
                         const allowRoomFree = !errors.length && conflicts.every(conflict => conflict.eligible && conflict.authorizationToken);
                         const selected = await askDashboardDecision({ title: result.message, conflicts, errors, allowRoomFree, selectedIds: [],
-                            message: "La app no puede determinar si una sala está libre. Solo autoriza un cruce si verificaste que la sala previamente asignada quedó completamente libre, sin procedimientos programados, y el médico no tendrá actividades simultáneas. Confirma cada cambio por separado.", cancelLabel: "CORREGIR CAMBIO" });
+                            message: allowRoomFree ? "La app no puede determinar si una sala está libre. Solo autoriza un cruce si verificaste que la sala o el extendido previamente asignado quedó completamente libre, sin procedimientos programados, y el médico no tendrá actividades simultáneas. Confirma cada cambio por separado." : "Este lote contiene cruces o errores que requieren corrección. Revisa todos los detalles indicados. No se guardó ningún cambio y no puedes autorizar este lote mediante sala libre.", cancelLabel: "CORREGIR CAMBIO" });
                         if (!allowRoomFree || !selected || !conflicts.every(conflict => selected.includes(conflict.changeId))) {
                             throw new Error("El lote no se envió. Puedes corregir los cambios.");
                         }
@@ -2384,31 +2474,35 @@ const { useState, useEffect, useRef, useMemo } = React;
                         // Re-run every validation, including state, origin and non-collision rules.
                         continue;
                     }
-                    if (result.status !== "success") throw new Error(result.message || "El cuadro de turnos rechazó el cambio.");
+                    if (result.status !== "success") {
+                        if (result.details?.errors?.length) await askDashboardDecision({ title: "Revisa los cambios", message: "Se encontraron errores que requieren corrección. No se guardó ningún cambio.", errors: result.details.errors, cancelLabel: "CORREGIR CAMBIO" });
+                        throw new Error(result.message || "El cuadro de turnos rechazó el cambio.");
+                    }
                     (result.changes || []).forEach((change, index) => {
                         payload.cambios[index].medicoOrigen = change.effectiveOrigin || change.origin;
                         payload.cambios[index].expectedState = change.expectedState;
                     });
-                    for (const warning of result.warnings || []) {
-                        const confirmed = await askDashboardDecision({
-                            title: "Confirma que el extendido quedó libre",
-                            message: warning.doctor + " · " + warning.date + ". " + warning.message,
-                            confirmation: "Confirmo que el extendido quedó libre"
-                        });
-                        if (!confirmed) throw new Error("El cambio no se envió. El extendido sigue sin modificar.");
-                        payload.cambios[warning.changeIndex].extendedConfirmed = true;
-                    }
                     dashboardPreparedRef.current = { signature: JSON.stringify({ changes, mode }), payload };
                     return result;
                 }
                 throw new Error("No se pudo identificar un titular único para cada cambio.");
             };
 
-            const sendChangesToBackend = async (changes, mode = "individual") => {
+            const sendChangesToBackend = (changes, mode = "individual") => {
+                if (dashboardSendRef.current) return dashboardSendRef.current;
+                const operation = performDashboardSubmit(changes, mode);
+                dashboardSendRef.current = operation.finally(() => { dashboardSendRef.current = null; });
+                return dashboardSendRef.current;
+            };
+
+            const performDashboardSubmit = async (changes, mode) => {
                 const signature = JSON.stringify({ changes, mode });
                 if (dashboardPreparedRef.current?.signature !== signature) await validateChangesOnDashboard(changes, mode);
                 const payload = { ...dashboardPreparedRef.current.payload, action: "submitShiftChanges" };
-                const result = await backendPost(payload);
+                // Keep the exact submission ID after a lost response. The server checks
+                // its audit under the document lock before validating or writing again.
+                submissionAttemptRef.current = { signature, payload };
+                const result = await dashboardRequest(payload, "applying");
                 if (result.status !== "success") {
                     dashboardPreparedRef.current = null;
                     if (result.details?.conflicts?.length) {
@@ -2419,6 +2513,7 @@ const { useState, useEffect, useRef, useMemo } = React;
                     throw new Error(result.message || "No se pudo guardar.");
                 }
                 dashboardPreparedRef.current = null;
+                submissionAttemptRef.current = null;
                 return result;
             };
 
@@ -2446,14 +2541,6 @@ const { useState, useEffect, useRef, useMemo } = React;
 
             const handleBatchSubmit = async () => {
                 if (batchChanges.length === 0 || batchChanges.some(change => !change.person)) return;
-                const scheduleConflict = findFirstScheduleConflict(batchChanges);
-                if (scheduleConflict) {
-                    setToast({
-                        message: "Error: Existe conflicto de cruce de horarios. Ya has agregado el turno de " + formatShiftLabel(scheduleConflict.previous.type) + " para esta fecha.",
-                        type: "error"
-                    });
-                    return;
-                }
                 setIsSubmitting(true);
                 try {
                     await sendChangesToBackend(batchChanges, "multiple");
@@ -2765,6 +2852,8 @@ const { useState, useEffect, useRef, useMemo } = React;
 
                     {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
+                    {dashboardPhase && <DashboardLoading phase={dashboardPhase} />}
+
                     {dashboardDecision && (
                         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
                             <div role="dialog" aria-modal="true" aria-labelledby="dashboard-decision-title" className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6" style={{ maxHeight: "90dvh", overflowY: "auto" }}>
@@ -2774,20 +2863,27 @@ const { useState, useEffect, useRef, useMemo } = React;
                                     {dashboardDecision.conflicts.map(conflict => <li key={conflict.changeId} className="rounded-lg border border-slate-200 p-3 text-sm">
                                         <strong className="block">{formatDoctorFullName(conflict.doctor)}</strong>
                                         <span className="block">{conflict.date.split("-").reverse().join("/")} · {(conflict.slots || []).join(" / ").replace("NIGHT", "NOCHE")}</span>
-                                        <span className="block text-slate-600">Asignación existente: {(conflict.assignments || []).map(item => (item.kind === "room" ? "Sala " : "") + item.code + " (" + item.slots.join("/").replace("NIGHT", "NOCHE") + ")").join(", ")}</span>
+                                        <span className="block text-slate-600">Asignación existente: {(conflict.assignments || []).map(formatCollisionAssignment).join(", ")}</span>
                                         <span className="block text-slate-600">Cambio solicitado: {formatShiftLabel(conflict.requestedJourney)} · {conflict.requestedRoom}</span>
-                                        {!conflict.eligible && <span className="block text-red-600">Este cruce requiere corregir el cambio; no admite la excepción por sala libre.</span>}
+                                        {!conflict.eligible && <span className="block text-red-600">{collisionRestrictionMessage(conflict)}</span>}
                                         {dashboardDecision.allowRoomFree && <label className="mt-2 flex items-start gap-2">
                                             <input type="checkbox" checked={dashboardDecision.selectedIds.includes(conflict.changeId)} onChange={event => {
                                                 const checked = event.target.checked;
                                                 setDashboardDecision(current => ({ ...current, selectedIds: checked ? [...current.selectedIds, conflict.changeId] : current.selectedIds.filter(id => id !== conflict.changeId) }));
                                             }} />
-                                            <span>Verifiqué la sala libre y autorizo este cambio para {formatDoctorFullName(conflict.doctor)}.</span>
+                                            <span>Verifiqué que la asignación original quedó libre y autorizo este cambio para {formatDoctorFullName(conflict.doctor)}.</span>
                                         </label>}
 
                                     </li>)}
                                 </ul>}
-                                {dashboardDecision.errors?.map((error, index) => <p key={index} className="mb-3 text-sm text-red-600">{error.details?.doctor} · {error.details?.date}: {error.message}</p>)}
+                                {dashboardDecision.errors?.length > 0 && <ul className="mb-3 space-y-3 text-sm text-red-600" style={{ maxHeight: "40vh", overflowY: "auto", overflowWrap: "anywhere" }}>
+                                    {dashboardDecision.errors.map((error, index) => <li key={index} className="rounded-lg border border-red-100 p-3">
+                                        <strong className="block">{error.details?.date?.split("-").reverse().join("/")} · {error.details?.room} {(error.details?.slots || []).join(" / ")}</strong>
+                                        {error.details?.doctor && <span className="block">{formatDoctorFullName(error.details.doctor)} · {error.details.journey}</span>}
+                                        <p>{error.message}</p>
+                                        {error.details?.doctors && <ul className="mt-2">{error.details.doctors.map((doctor, i) => <li key={i}>• {formatDoctorFullName(doctor)} (cambio {error.details.changeIndices[i] + 1})</li>)}</ul>}
+                                    </li>)}
+                                </ul>}
                                 <div className="flex flex-col gap-3">
                                     {dashboardDecision.candidates?.map(candidate => (
                                         <button type="button" key={candidate.id} onClick={() => finishDashboardDecision(candidate.name)} className="py-2.5 px-3 bg-keralty-blue text-white rounded-lg font-medium">{formatDoctorFullName(candidate.name)}</button>
