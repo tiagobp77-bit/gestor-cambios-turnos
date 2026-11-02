@@ -708,33 +708,68 @@ const { useState, useEffect, useRef, useMemo } = React;
             </section>
         );
 
-        const INITIAL_OPERATIONAL_CONSIDERATIONS = `> CONSIDERACIONES OPERATIVAS:
+        const OPERATIONAL_PROTOCOL = [
+    {
+        "id": "cardiovascular",
+        "label": "Cirugía Cardiovascular",
+        "guide": "Validar en bandeja de entrada del correo de ayudantes la existencia de solicitudes de ayudantía para el servicio de Cirugía Cardiovascular a la fecha. En caso afirmativo cubrir con la primera sala libre disponible teniendo como prioridad la misma sede y como último recurso el médico disponible."
+    },
+    {
+        "id": "minor-procedures",
+        "label": "Procedimientos Menores",
+        "guide": "Verificar si existen intervenciones programadas de Cirugía de Mano o pacientes de Medicina Prepagada de cualquier especialidad. En caso afirmativo cubrir con la primera sala libre disponible teniendo como prioridad la misma sede y como último recurso el médico disponible."
+    },
+    {
+        "id": "excellence",
+        "label": "Cambios por grupos de excelencia",
+        "guide": "Verificar si existen intervenciones programadas de grupos de excelencia y en caso afirmativo informar el cambio de salas correspondiente según sea el caso."
+    },
+    {
+        "id": "personnel",
+        "label": "Novedades de Personal",
+        "guide": "Consignar reportes pendientes de ausentismo laboral (incapacidades médicas, licencias o calamidades). En caso de ser necesario cubrir con la primera sala libre disponible teniendo como prioridad la misma sede y como último recurso el médico disponible."
+    },
+    {
+        "id": "free-rooms",
+        "label": "Salas Libres",
+        "guide": "Notificar las salas libres en ambas sedes exclusivamente cuando no existan demandas asistenciales o coberturas pendientes por suplir con dichas salas."
+    },
+    {
+        "id": "other",
+        "label": "Otros",
+        "guide": "Notificar cualquier otro cambio operativo pertinente para conocimiento general del grupo."
+    }
+];
 
-**PROTOCOLO DE VALIDACIÓN**
+        const createOperationalConsiderations = () => Object.fromEntries(OPERATIONAL_PROTOCOL.map(item => [item.id, { selected: false, text: "" }]));
 
-*[Registre a continuación las observaciones pertinentes según corresponda]*
+        const buildOrganizationMessage = (organizationText, considerations) => {
+            const selected = OPERATIONAL_PROTOCOL.filter(item => considerations[item.id].selected);
+            const missing = selected.filter(item => !considerations[item.id].text.trim()).map(item => item.id);
+            if (missing.length) return { text: "", missing };
+            const content = selected.map(item => "*" + item.label + ":*\n" + considerations[item.id].text).join("\n\n");
+            return { text: organizationText + (selected.length ? "\n\n> CONSIDERACIONES OPERATIVAS:\n\n" + content : ""), missing: [] };
+        };
 
-• **Cirugía Cardiovascular:** Validar en bandeja de entrada del correo de ayudantes la existencia de solicitudes de ayudantía para el servicio de Cirugía Cardiovascular a la fecha. En caso afirmativo cubrir con la primera sala libre disponible teniendo como prioridad la misma sede y como último recurso el médico disponible.
-
-• **Procedimientos Menores:** Verificar si existen intervenciones programadas de Cirugía de Mano o pacientes de Medicina Prepagada de cualquier especialidad. En caso afirmativo cubrir con la primera sala libre disponible teniendo como prioridad la misma sede y como último recurso el médico disponible.
-
-• **Cambios por grupos de excelencia:** Verificar si existen intervenciones programadas de grupos de excelencia y en caso afirmativo informar el cambio de salas correspondiente según sea el caso.
-
-• **Novedades de Personal:** Consignar reportes pendientes de ausentismo laboral (incapacidades médicas, licencias o calamidades). En caso de ser necesario cubrir con la primera sala libre disponible teniendo como prioridad la misma sede y como último recurso el médico disponible.
-
-• **Salas Libres:** Notificar las salas libres en ambas sedes exclusivamente cuando no existan demandas asistenciales o coberturas pendientes por suplir con dichas salas.
-
-• **Otros:** Notificar cualquier otro cambio operativo pertinente para conocimiento general del grupo.`;
+        const organizationWhatsAppUrl = text => "https://wa.me/?text=" + encodeURIComponent(text);
 
         const TomorrowOrganization = ({ setToast }) => {
             const [organization, setOrganization] = useState(null);
             const [organizationText, setOrganizationText] = useState("");
-            const [considerations, setConsiderations] = useState(INITIAL_OPERATIONAL_CONSIDERATIONS);
+            const [considerations, setConsiderations] = useState(createOperationalConsiderations);
             const [shareUrl, setShareUrl] = useState("");
+            const [missingConsiderations, setMissingConsiderations] = useState([]);
+            const updateConsideration = (id, patch) => {
+                setConsiderations(current => ({ ...current, [id]: { ...current[id], ...patch } }));
+                setMissingConsiderations(current => current.filter(itemId => itemId !== id));
+                setShareUrl("");
+            };
             const [loading, setLoading] = useState(false);
             const generate = async () => {
                 setLoading(true);
                 setOrganization(null);
+                setConsiderations(createOperationalConsiderations());
+                setMissingConsiderations([]);
                 setShareUrl("");
                 try {
                     const result = await backendGet({ action: "getTomorrowOrganization" });
@@ -746,8 +781,14 @@ const { useState, useEffect, useRef, useMemo } = React;
                 } finally { setLoading(false); }
             };
             const saveAndShare = () => {
-                const text = organizationText + (considerations !== "" ? "\n\n" + considerations : "");
-                const url = "https://wa.me/?text=" + encodeURIComponent(text);
+                const message = buildOrganizationMessage(organizationText, considerations);
+                setMissingConsiderations(message.missing);
+                if (message.missing.length) {
+                    setShareUrl("");
+                    setToast({ message: "Completa las consideraciones seleccionadas o desmárcalas antes de enviar.", type: "error" });
+                    return;
+                }
+                const url = organizationWhatsAppUrl(message.text);
                 setShareUrl(url);
                 window.open(url, "_blank", "noopener,noreferrer");
             };
@@ -757,9 +798,22 @@ const { useState, useEffect, useRef, useMemo } = React;
                     <p className="text-sm font-bold text-keralty-blue">{organization.heading}</p>
                     <label htmlFor="tomorrow-organization" className="block text-sm font-bold text-slate-700">Organización generada</label>
                     <textarea id="tomorrow-organization" value={organizationText} onChange={event => { setOrganizationText(event.target.value); setShareUrl(""); }} rows={18} className="block w-full rounded-lg border border-slate-300 p-3 text-sm leading-relaxed resize-y" />
-                    <h3 className="text-sm font-bold text-slate-700">Consideraciones operativas</h3>
-                    <label htmlFor="tomorrow-considerations" className="block text-xs font-bold text-slate-600">CONSIDERACIONES OPERATIVAS</label>
-                    <textarea id="tomorrow-considerations" value={considerations} onChange={event => { setConsiderations(event.target.value); setShareUrl(""); }} rows={12} className="block w-full rounded-lg border border-slate-300 p-3 text-sm leading-relaxed resize-y" />
+                    <fieldset className="space-y-3">
+                        <legend className="text-sm font-bold text-keralty-blue">PROTOCOLO DE VALIDACIÓN</legend>
+                        <p className="text-xs text-slate-500">Consideraciones operativas: revisa cada punto y selecciona solo los temas que incluirás en el mensaje.</p>
+                        {OPERATIONAL_PROTOCOL.map(item => <div key={item.id} className="rounded-lg border border-slate-200 p-3">
+                            <label htmlFor={"protocol-" + item.id} className="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer">
+                                <input id={"protocol-" + item.id} type="checkbox" checked={considerations[item.id].selected} onChange={event => updateConsideration(item.id, { selected: event.target.checked })} aria-describedby={"guide-" + item.id} className="rounded text-keralty-blue" />
+                                {item.label}
+                            </label>
+                            <p id={"guide-" + item.id} className="mt-1 text-xs text-slate-500 leading-relaxed">{item.guide}</p>
+                            {considerations[item.id].selected && <div className="mt-2">
+                                <label htmlFor={"consideration-" + item.id} className="block text-xs font-semibold text-slate-600">Consideración: {item.label}</label>
+                                <textarea id={"consideration-" + item.id} value={considerations[item.id].text} onChange={event => updateConsideration(item.id, { text: event.target.value })} rows={3} aria-invalid={missingConsiderations.includes(item.id)} aria-describedby={missingConsiderations.includes(item.id) ? "error-" + item.id : undefined} className="mt-1 block w-full rounded-lg border border-slate-300 p-3 text-sm leading-relaxed resize-y" />
+                                {missingConsiderations.includes(item.id) && <p id={"error-" + item.id} role="alert" className="mt-1 text-xs text-red-600">Escribe una consideración o desmarca este ítem antes de enviar.</p>}
+                            </div>}
+                        </div>)}
+                    </fieldset>
                     <p className="text-xs text-slate-500">Revisa el texto. WhatsApp se abrirá para que elijas el chat o grupo y confirmes el envío.</p>
                     <button type="button" onClick={saveAndShare} disabled={!organizationText.trim()} className="w-full sm:w-auto px-4 py-3 rounded-lg bg-keralty-green text-white text-xs font-bold disabled:opacity-60">GUARDAR Y ENVIAR</button>
                     {shareUrl && <a href={shareUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-keralty-blue underline">Abrir el mensaje preparado en WhatsApp</a>}
@@ -2299,17 +2353,35 @@ const { useState, useEffect, useRef, useMemo } = React;
                 const payload = buildDashboardChangePayload(changes, mode, "checkDashboardCollision");
                 // Each answer resolves one specific origin; no request may choose
                 // an arbitrary holder or use the signed-in user as its owner.
-                for (let attempt = 0; attempt <= changes.length; attempt += 1) {
+                for (let attempt = 0; attempt <= changes.length * 2 + 2; attempt += 1) {
                     const result = await backendPost(payload);
-                    if (result.code === "AMBIGUOUS_SOURCE_SHIFT" && result.details?.candidates?.length) {
-                        const index = result.details.changeIndex;
+                    const ambiguity = result.code === "AMBIGUOUS_SOURCE_SHIFT" ? result : (result.details?.errors || []).find(error => error.code === "AMBIGUOUS_SOURCE_SHIFT");
+                    if (ambiguity?.details?.candidates?.length) {
+                        const index = ambiguity.details.changeIndex;
                         const choice = await askDashboardDecision({
                             title: "Selecciona quién cede el turno",
-                            message: result.message + " Fecha: " + payload.cambios[index].fecha,
-                            candidates: result.details.candidates
+                            message: ambiguity.message + " Fecha: " + payload.cambios[index].fecha,
+                            candidates: ambiguity.details.candidates
                         });
                         if (!choice) throw new Error("El cambio no se envió. Puedes seguir editándolo.");
                         payload.cambios[index].medicoOrigen = choice;
+                        continue;
+                    }
+                    if (result.code === "COLLISION" && result.details?.conflicts?.length) {
+                        const errors = (result.details.errors || []).filter(error => error.code !== "COLLISION");
+                        const conflicts = result.details.conflicts;
+                        const allowRoomFree = !errors.length && conflicts.every(conflict => conflict.eligible && conflict.authorizationToken);
+                        const selected = await askDashboardDecision({ title: result.message, conflicts, errors, allowRoomFree, selectedIds: [],
+                            message: "La app no puede determinar si una sala está libre. Solo autoriza un cruce si verificaste que la sala previamente asignada quedó completamente libre, sin procedimientos programados, y el médico no tendrá actividades simultáneas. Confirma cada cambio por separado.", cancelLabel: "CORREGIR CAMBIO" });
+                        if (!allowRoomFree || !selected || !conflicts.every(conflict => selected.includes(conflict.changeId))) {
+                            throw new Error("El lote no se envió. Puedes corregir los cambios.");
+                        }
+                        conflicts.forEach(conflict => {
+                            const change = payload.cambios[conflict.changeIndex];
+                            change.expectedState = conflict.expectedState;
+                            change.roomFreeAuthorization = { confirmed: true, token: conflict.authorizationToken };
+                        });
+                        // Re-run every validation, including state, origin and non-collision rules.
                         continue;
                     }
                     if (result.status !== "success") throw new Error(result.message || "El cuadro de turnos rechazó el cambio.");
@@ -2339,6 +2411,11 @@ const { useState, useEffect, useRef, useMemo } = React;
                 const result = await backendPost(payload);
                 if (result.status !== "success") {
                     dashboardPreparedRef.current = null;
+                    if (result.details?.conflicts?.length) {
+                        await askDashboardDecision({ title: result.message, conflicts: result.details.conflicts,
+                            errors: (result.details.errors || []).filter(error => error.code !== "COLLISION"),
+                            message: "El cuadro cambió o la autorización ya no corresponde. No se guardó este lote. Revisa estos cambios y vuelve a validarlos antes de enviar.", cancelLabel: "CORREGIR CAMBIO" });
+                    }
                     throw new Error(result.message || "No se pudo guardar.");
                 }
                 dashboardPreparedRef.current = null;
@@ -2690,15 +2767,34 @@ const { useState, useEffect, useRef, useMemo } = React;
 
                     {dashboardDecision && (
                         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
-                            <div role="dialog" aria-modal="true" aria-labelledby="dashboard-decision-title" className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+                            <div role="dialog" aria-modal="true" aria-labelledby="dashboard-decision-title" className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6" style={{ maxHeight: "90dvh", overflowY: "auto" }}>
                                 <h3 id="dashboard-decision-title" className="text-lg font-bold text-slate-800 mb-2">{dashboardDecision.title}</h3>
                                 <p className="text-sm text-slate-600 mb-5">{dashboardDecision.message}</p>
+                                {dashboardDecision.conflicts && <ul className="mb-4 space-y-3" style={{ maxHeight: "40vh", overflowY: "auto" }}>
+                                    {dashboardDecision.conflicts.map(conflict => <li key={conflict.changeId} className="rounded-lg border border-slate-200 p-3 text-sm">
+                                        <strong className="block">{formatDoctorFullName(conflict.doctor)}</strong>
+                                        <span className="block">{conflict.date.split("-").reverse().join("/")} · {(conflict.slots || []).join(" / ").replace("NIGHT", "NOCHE")}</span>
+                                        <span className="block text-slate-600">Asignación existente: {(conflict.assignments || []).map(item => (item.kind === "room" ? "Sala " : "") + item.code + " (" + item.slots.join("/").replace("NIGHT", "NOCHE") + ")").join(", ")}</span>
+                                        <span className="block text-slate-600">Cambio solicitado: {formatShiftLabel(conflict.requestedJourney)} · {conflict.requestedRoom}</span>
+                                        {!conflict.eligible && <span className="block text-red-600">Este cruce requiere corregir el cambio; no admite la excepción por sala libre.</span>}
+                                        {dashboardDecision.allowRoomFree && <label className="mt-2 flex items-start gap-2">
+                                            <input type="checkbox" checked={dashboardDecision.selectedIds.includes(conflict.changeId)} onChange={event => {
+                                                const checked = event.target.checked;
+                                                setDashboardDecision(current => ({ ...current, selectedIds: checked ? [...current.selectedIds, conflict.changeId] : current.selectedIds.filter(id => id !== conflict.changeId) }));
+                                            }} />
+                                            <span>Verifiqué la sala libre y autorizo este cambio para {formatDoctorFullName(conflict.doctor)}.</span>
+                                        </label>}
+
+                                    </li>)}
+                                </ul>}
+                                {dashboardDecision.errors?.map((error, index) => <p key={index} className="mb-3 text-sm text-red-600">{error.details?.doctor} · {error.details?.date}: {error.message}</p>)}
                                 <div className="flex flex-col gap-3">
                                     {dashboardDecision.candidates?.map(candidate => (
                                         <button type="button" key={candidate.id} onClick={() => finishDashboardDecision(candidate.name)} className="py-2.5 px-3 bg-keralty-blue text-white rounded-lg font-medium">{formatDoctorFullName(candidate.name)}</button>
                                     ))}
+                                    {dashboardDecision.allowRoomFree && <button type="button" disabled={dashboardDecision.selectedIds.length !== dashboardDecision.conflicts.length} onClick={() => finishDashboardDecision(dashboardDecision.selectedIds)} className="py-2.5 px-3 bg-keralty-blue text-white rounded-lg font-medium disabled:opacity-60">CONFIRMAR SALA LIBRE Y CONTINUAR</button>}
                                     {dashboardDecision.confirmation && <button type="button" onClick={() => finishDashboardDecision(true)} className="py-2.5 px-3 bg-keralty-blue text-white rounded-lg font-medium">{dashboardDecision.confirmation}</button>}
-                                    <button autoFocus type="button" onClick={() => finishDashboardDecision(null)} className="py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium">Cancelar</button>
+                                    <button autoFocus type="button" onClick={() => finishDashboardDecision(null)} className="py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium">{dashboardDecision.cancelLabel || "Cancelar"}</button>
                                 </div>
                             </div>
                         </div>
