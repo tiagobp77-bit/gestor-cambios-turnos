@@ -916,7 +916,8 @@ const { useState, useEffect, useRef, useMemo } = React;
                             <div className="py-12 text-center bg-white border border-red-100 rounded-xl"><p className="text-sm font-semibold text-red-600">{error}</p><button type="button" onClick={loadDashboard} className="mt-4 px-4 py-2 bg-keralty-blue text-white rounded-lg text-sm font-medium">Reintentar</button></div>
                         ) : (
                             <div className="bg-white border border-slate-300 rounded-lg overflow-hidden">
-                                <div className="overflow-auto overscroll-contain" style={{ maxHeight: "68vh", overflow: "auto", overscrollBehavior: "contain" }} role="region" aria-label="Cuadro mensual de turnos" tabIndex="0">
+                                {/* Keep sticky table cells below the app header while the page scrolls. */}
+                                <div className="overflow-auto overscroll-contain" style={{ isolation: "isolate", maxHeight: "68vh", overflow: "auto", overscrollBehavior: "contain" }} role="region" aria-label="Cuadro mensual de turnos" tabIndex="0">
                                     <table className="border-collapse text-[9px] sm:text-[10px] leading-none" style={{ minWidth: `${162 + visibleDays.length * 28}px` }}>
                                         <thead>
                                             <tr>
