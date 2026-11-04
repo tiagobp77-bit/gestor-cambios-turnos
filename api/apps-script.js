@@ -1,4 +1,5 @@
 const { randomUUID } = require('node:crypto');
+const { waitUntil } = require('@vercel/functions');
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbygKJNFP05Ck8OcvfoBTHYzyvV0oNFQoONZMAu5ZlXuEYUcGgkUVAmepWtYSCgrcf0WCw/exec";
 const STAGING_ORIGIN = "https://gestor-cambios-turnos-staging.vercel.app";
 const ALLOWED_ORIGINS = new Set([STAGING_ORIGIN, 'https://gestor-cambios-turnos.vercel.app', 'https://turno-sync.vercel.app', 'https://turnosync-tiagobp77-bits-projects.vercel.app', 'https://turnosync-git-main-tiagobp77-bits-projects.vercel.app']);
@@ -42,7 +43,7 @@ module.exports = async function handler(req, res) {
       upstreamUrl = url.toString();
     } else {
       options.headers['Content-Type'] = 'text/plain;charset=utf-8';
-      options.body = JSON.stringify({...req.body,requestId});
+      options.body = JSON.stringify({...req.body,requestId,deferNotifications:action==='submitShiftChanges'});
     }
     const upstream = await fetch(upstreamUrl, options);
     if (!upstream.ok) {
@@ -54,6 +55,11 @@ module.exports = async function handler(req, res) {
     try { data = JSON.parse(body); } catch { return fail(502,'UPSTREAM_INVALID_JSON','El servicio devolvió una respuesta inesperada. No se pudo confirmar el resultado.'); }
     if (!data || !['success','error','pending'].includes(data.status)) return fail(502,'UPSTREAM_INVALID_RESPONSE','El servicio no confirmó el resultado de la operación.');
     const code = typeof data.code === 'string' && /^[A-Z_]{1,60}$/.test(data.code) ? data.code : undefined;
+    const noticeWork = data._notificationWork;
+    delete data._notificationWork;
+    if (data.status === 'success' && noticeWork) {
+      waitUntil(deliverQueuedNotices(noticeWork, requestId));
+    }
     log(data.status === 'error' ? 'warn' : 'info',{code:code || data.status,httpStatus:200});
     return res.status(200).json({...data,requestId});
   } catch (error) {
@@ -61,3 +67,16 @@ module.exports = async function handler(req, res) {
     return fail(timedOut?504:502,timedOut?'UPSTREAM_TIMEOUT':'UPSTREAM_CONNECTION',timedOut?'El servicio tardó más de lo esperado. No se pudo confirmar el resultado.':'Se interrumpió la conexión con Google. No se pudo confirmar el resultado.',{errorType:timedOut?'timeout':'connection'});
   } finally { clearTimeout(timeout); }
 };
+
+async function deliverQueuedNotices(work, requestId) {
+  const started=Date.now();
+  try {
+    const response=await fetch(APPS_SCRIPT_URL,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain;charset=utf-8',Accept:'application/json'},body:JSON.stringify({action:'finishNotifications',work}),signal:AbortSignal.timeout(180000)});
+    const result=await response.json();
+    console.info(JSON.stringify({event:'turnosync_notices',requestId,durationMs:Date.now()-started,status:response.ok?result.status:'error',states:result.states}));
+  } catch {
+    // The independent Apps Script clock drains durable PENDING jobs. An
+    // interrupted provider call remains IN_FLIGHT/UNCERTAIN, never retried here.
+    console.error(JSON.stringify({event:'turnosync_notices',requestId,durationMs:Date.now()-started,status:'worker_interrupted'}));
+  }
+}

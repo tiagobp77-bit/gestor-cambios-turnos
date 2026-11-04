@@ -2557,13 +2557,11 @@ const { useState, useEffect, useRef, useMemo } = React;
                 if (batchChanges.length === 0 || batchChanges.some(change => !change.person)) return;
                 setIsSubmitting(true);
                 try {
-                    await sendChangesToBackend(batchChanges, "multiple");
-                    setToast({ message: batchChanges.length + " solicitud(es) guardada(s) correctamente.", type: "success" });
-                    try {
-                        await backendPost({ action: "deleteDraft", email: user.email });
-                    } catch (draftError) {
-                        console.warn("No se pudo limpiar el borrador remoto", draftError);
-                    }
+                    const draftCutoff = new Date().toISOString();
+                    const result = await sendChangesToBackend(batchChanges, "multiple");
+                    setToast({ message: batchChanges.length + " solicitud(es) guardada(s) correctamente." + (result.notifications === "queued" ? " Avisos en proceso." : ""), type: "success" });
+                    // Cleanup cannot delay confirmation or delete a newer draft.
+                    backendPost({ action: "deleteDraft", email: user.email, before: draftCutoff }).catch(draftError => console.warn("No se pudo limpiar el borrador remoto", draftError));
                     window.localStorage.removeItem(getMultipleDraftStorageKey(user));
                     setHasUnsavedMultipleChanges(false);
                     setBatchChanges([]);
@@ -2622,8 +2620,8 @@ const { useState, useEffect, useRef, useMemo } = React;
                 setIndividualSubmitSummary(null);
                 setIsSubmitting(true);
                 try {
-                    await sendChangesToBackend(individualShifts, "individual");
-                    setToast({ message: individualShifts.length + " solicitud(es) guardada(s) correctamente.", type: "success" });
+                    const result = await sendChangesToBackend(individualShifts, "individual");
+                    setToast({ message: individualShifts.length + " solicitud(es) guardada(s) correctamente." + (result.notifications === "queued" ? " Avisos en proceso." : ""), type: "success" });
                     setShifts([{ id: Date.now().toString(), person: "", type: "", date: "", room: "", repeatToOtherDates: false, additionalDates: [] }]);
                     refreshHistoryAfterWrite();
                 } catch (error) {
