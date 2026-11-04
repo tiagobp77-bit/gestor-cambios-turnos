@@ -2136,23 +2136,29 @@ const { useState, useEffect, useRef, useMemo } = React;
             useEffect(() => {
                 if (!user) return;
                 let disposed = false;
-                let latestRead = 0;
-                doctorsLoadedRef.current = true;
+                let inFlight = false;
+                let lastLoadedAt = 0;
                 const loadDoctors = async () => {
-                    const read = ++latestRead;
-                    setIsLoadingDoctors(true);
+                    if (inFlight || Date.now() - lastLoadedAt < 60000) return;
+                    inFlight = true;
+                    if (!doctorsLoadedRef.current) setIsLoadingDoctors(true);
                     try {
                         const result = await backendGet({ action: "getDoctors" });
-                        if (disposed || read !== latestRead) return;
-                        if (result.status === "success") setDoctorsList(result.data);
+                        if (disposed) return;
+                        if (result.status === "success" && Array.isArray(result.data)) {
+                            setDoctorsList(result.data);
+                            doctorsLoadedRef.current = true;
+                            lastLoadedAt = Date.now();
+                        }
                         else throw new Error(result.message);
                     } catch (error) {
-                        if (disposed || read !== latestRead) return;
-                        doctorsLoadedRef.current = false;
-                        setDoctorsList([]);
-                        setToast({ message: "No se pudo cargar Setup_Medicos. Reintenta antes de registrar cambios.", type: "error" });
+                        if (disposed) return;
+                        if (!doctorsLoadedRef.current) {
+                            setToast({ message: "No se pudo cargar Setup_Medicos. Reintenta antes de registrar cambios.", type: "error" });
+                        }
                     } finally {
-                        if (!disposed && read === latestRead) setIsLoadingDoctors(false);
+                        inFlight = false;
+                        if (!disposed) setIsLoadingDoctors(false);
                     }
                 };
                 const timer = window.setTimeout(loadDoctors, 0);
@@ -2163,7 +2169,7 @@ const { useState, useEffect, useRef, useMemo } = React;
                     window.clearTimeout(timer);
                     window.removeEventListener("focus", loadDoctors);
                 };
-            }, [user, activeView]);
+            }, [user]);
 
             useEffect(() => {
                 if (!user || motionEnabled) return;
