@@ -2002,10 +2002,10 @@ const { useState, useEffect, useRef, useMemo } = React;
         };
 
         const App = () => {
-            // El login se muestra de inmediato. El splash animado se conserva
-            // como componente de respaldo, pero no bloquea el primer render.
-            const [showSplash, setShowSplash] = useState(false);
+            // Play the welcome animation once per page load, independently of API latency.
+            const [showSplash, setShowSplash] = useState(true);
             const [fadeSplash, setFadeSplash] = useState(false);
+            const [splashReady, setSplashReady] = useState(false);
 
             const [user, setUser] = useState(null);
             const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -2070,10 +2070,18 @@ const { useState, useEffect, useRef, useMemo } = React;
 
             // ANIMACIÓN DEL SPLASH SCREEN
             useEffect(() => {
-                const timer1 = setTimeout(() => setFadeSplash(true), 450);
-                const timer2 = setTimeout(() => setShowSplash(false), 700);
-                return () => { clearTimeout(timer1); clearTimeout(timer2); };
+                // A failed/slow image must never trap the user on the welcome screen.
+                const fallback = setTimeout(() => setSplashReady(true), 1500);
+                return () => clearTimeout(fallback);
             }, []);
+            useEffect(() => {
+                if (!splashReady) return;
+                const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+                const duration = reduced ? 300 : 1800;
+                const timer1 = setTimeout(() => setFadeSplash(true), duration);
+                const timer2 = setTimeout(() => setShowSplash(false), duration + (reduced ? 0 : 500));
+                return () => { clearTimeout(timer1); clearTimeout(timer2); };
+            }, [splashReady]);
 
             const activateGoogleSignIn = () => setGoogleSignInState("loading");
 
@@ -2717,9 +2725,9 @@ const { useState, useEffect, useRef, useMemo } = React;
             // RENDERIZADO DEL SPLASH SCREEN
             if (showSplash) {
                 return (
-                    <div className={`fixed inset-0 z-[9999] bg-white flex flex-col items-center justify-center transition-opacity duration-500 ease-in-out ${fadeSplash ? 'opacity-0' : 'opacity-100'}`}>
+                    <div role="status" aria-label="Iniciando TurnoSync" className={`fixed inset-0 z-[9999] bg-white flex flex-col items-center justify-center transition-opacity duration-500 ease-in-out ${fadeSplash ? 'opacity-0' : 'opacity-100'}`}>
                         <div className="animate-bounce-short">
-                            <img width="200" height="80" src="./keralty-logo.gif" alt="Keralty" className="h-20 object-contain mb-4" />
+                            <img width="200" height="80" src="./keralty-logo.gif" alt="TurnoSync" onLoad={() => setSplashReady(true)} onError={() => setSplashReady(true)} className="h-20 object-contain mb-4" />
                         </div>
                         <h1 className="text-4xl font-bold text-keralty-blue animate-fade-in">TurnoSync</h1>
                         <p className="text-slate-500 mt-2 font-medium animate-fade-in" style={{ animationDelay: '0.2s' }}>Gestión de Turnos</p>
